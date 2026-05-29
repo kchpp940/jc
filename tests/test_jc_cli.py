@@ -35,24 +35,23 @@ class MyTests(unittest.TestCase):
             'jc -p -r airport -I': ('--airport', ['p', 'r'], ['airport', '-I']),
             'jc -prd airport -I': ('--airport', ['p', 'r', 'd'], ['airport', '-I']),
             'jc -p nonexistent command': (None, ['p'], ['nonexistent', 'command']),
-            'jc -ap': (None, [], None),
+            'jc -ap': (None, ['a', 'p'], None),
             'jc -a arp -a': ('--arp', ['a'], ['arp', '-a']),
-            'jc -v': (None, [], None),
-            'jc -h': (None, [], None),
-            'jc -h --arp': (None, [], None),
+            'jc -v': (None, ['v'], None),
+            'jc -h': (None, ['h'], None),
+            'jc -h --arp': ('--arp', ['h'], None),
             'jc -h arp': ('--arp', ['h'], ['arp']),
             'jc -h arp -a': ('--arp', ['h'], ['arp', '-a']),
             'jc -v arp -a': ('--arp', ['v'], ['arp', '-a']),
             'jc --pretty dig': ('--dig', ['p'], ['dig']),
             'jc --pretty --monochrome --quiet --raw dig': ('--dig', ['p', 'm', 'q', 'r'], ['dig']),
-            'jc --about --yaml-out': (None, [], None)
+            'jc --about --yaml-out': (None, ['a', 'y'], None)
         }
 
         for command, expected in commands.items():
             cli = JcCli()
-            cli.args = command.split()
-            cli.magic_parser()
-            resulting_attributes = (cli.magic_found_parser, cli.magic_options, cli.magic_run_command)
+            parsed = cli.parse_arguments(argv=command.split())
+            resulting_attributes = (parsed.found_parser, list(parsed.options), list(parsed.run_command) if parsed.run_command else None)
             self.assertEqual(expected, resulting_attributes)
 
     @unittest.skipIf(not PYGMENTS_INSTALLED, 'pygments library not installed')
@@ -333,10 +332,10 @@ class MyTests(unittest.TestCase):
         cli.data_out = {'a': 1, 'b': 2}
         cli.run_timestamp = datetime(2022, 8, 5, 0, 37, 9, 273349, tzinfo=timezone.utc)
         cli.magic_returncode = 2
-        cli.magic_run_command = ['ping', '-c3', '192.168.1.123']
+        parsed = cli.parse_arguments(argv=['jc', 'ping', '-c3', '192.168.1.123'])
         cli.parser_name = 'ping'
         expected = {'a': 1, 'b': 2, '_jc_meta': {'parser': 'ping', 'magic_command': ['ping', '-c3', '192.168.1.123'], 'magic_command_exit': 2, 'timestamp': 1659659829.273349, 'slice_start': None, 'slice_end': None}}
-        cli.add_metadata_to_output()
+        cli.add_metadata_to_output(parsed)
         self.assertEqual(cli.data_out, expected)
 
     def test_add_meta_to_simple_list(self):
@@ -344,21 +343,21 @@ class MyTests(unittest.TestCase):
         cli.data_out = [{'a': 1, 'b': 2},{'a': 3, 'b': 4}]
         cli.run_timestamp = datetime(2022, 8, 5, 0, 37, 9, 273349, tzinfo=timezone.utc)
         cli.magic_returncode = 2
-        cli.magic_run_command = ['ping', '-c3', '192.168.1.123']
+        parsed = cli.parse_arguments(argv=['jc', 'ping', '-c3', '192.168.1.123'])
         cli.parser_name = 'ping'
         expected = [{'a': 1, 'b': 2, '_jc_meta': {'parser': 'ping', 'magic_command': ['ping', '-c3', '192.168.1.123'], 'magic_command_exit': 2, 'timestamp': 1659659829.273349, 'slice_start': None, 'slice_end': None}}, {'a': 3, 'b': 4, '_jc_meta': {'parser': 'ping', 'magic_command': ['ping', '-c3', '192.168.1.123'], 'magic_command_exit': 2, 'timestamp': 1659659829.273349, 'slice_start': None, 'slice_end': None}}]
-        cli.add_metadata_to_output()
+        cli.add_metadata_to_output(parsed)
         self.assertEqual(cli.data_out, expected)
 
     def test_add_meta_to_dict_existing_meta(self):
         cli = JcCli()
-        cli.magic_run_command = ['ping', '-c3', '192.168.1.123']
+        parsed = cli.parse_arguments(argv=['jc', 'ping', '-c3', '192.168.1.123'])
         cli.magic_returncode = 2
         cli.data_out = {'a': 1, 'b': 2, '_jc_meta': {'foo': 'bar'}}
         cli.run_timestamp = datetime(2022, 8, 5, 0, 37, 9, 273349, tzinfo=timezone.utc)
         cli.parser_name = 'ping'
         expected = {'a': 1, 'b': 2, '_jc_meta': {'foo': 'bar', 'parser': 'ping', 'magic_command': ['ping', '-c3', '192.168.1.123'], 'magic_command_exit': 2, 'timestamp': 1659659829.273349, 'slice_start': None, 'slice_end': None}}
-        cli.add_metadata_to_output()
+        cli.add_metadata_to_output(parsed)
         self.assertEqual(cli.data_out, expected)
 
     def test_add_meta_to_list_existing_meta(self):
@@ -366,10 +365,10 @@ class MyTests(unittest.TestCase):
         cli.data_out = [{'a': 1, 'b': 2, '_jc_meta': {'foo': 'bar'}},{'a': 3, 'b': 4, '_jc_meta': {'foo': 'bar'}}]
         cli.run_timestamp = datetime(2022, 8, 5, 0, 37, 9, 273349, tzinfo=timezone.utc)
         cli.magic_returncode = 2
-        cli.magic_run_command = ['ping', '-c3', '192.168.1.123']
+        parsed = cli.parse_arguments(argv=['jc', 'ping', '-c3', '192.168.1.123'])
         cli.parser_name = 'ping'
         expected = [{'a': 1, 'b': 2, '_jc_meta': {'foo': 'bar', 'parser': 'ping', 'magic_command': ['ping', '-c3', '192.168.1.123'], 'magic_command_exit': 2, 'timestamp': 1659659829.273349, 'slice_start': None, 'slice_end': None}}, {'a': 3, 'b': 4, '_jc_meta': {'foo': 'bar', 'parser': 'ping', 'magic_command': ['ping', '-c3', '192.168.1.123'], 'magic_command_exit': 2, 'timestamp': 1659659829.273349, 'slice_start': None, 'slice_end': None}}]
-        cli.add_metadata_to_output()
+        cli.add_metadata_to_output(parsed)
         self.assertEqual(cli.data_out, expected)
 
     def test_slice_none_str(self):
@@ -571,7 +570,7 @@ power management:
         cli = JcCli()
         cli.meta_out = True
         cli.parser_module = proc_parser
-        cli.magic_run_command = ['/proc/stat', '/proc/cpuinfo']
+        cli.parse_arguments(argv=['jc', '/proc/stat', '/proc/cpuinfo'])
         cli.magic_returncode = 0
         cli.inputlist = ['/proc/stat', '/proc/cpuinfo']
         cli.data_in = [
