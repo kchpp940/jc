@@ -10,8 +10,7 @@ from datetime import datetime, timezone
 import textwrap
 import shlex
 import subprocess
-from dataclasses import dataclass, field
-from typing import List, Dict, Iterable, Union, Optional, TextIO, Tuple
+from typing import List, Dict, Iterable, Union, Optional, TextIO
 from types import ModuleType
 from .lib import (
     __version__, parser_info, all_parser_info, parsers, get_parser, _parser_is_streaming,
@@ -47,98 +46,6 @@ SLICER_PATTERN: str = r'-?[0-9]*\:-?[0-9]*$'
 SLICER_RE = re.compile(SLICER_PATTERN)
 
 
-@dataclass(frozen=True)
-class ParsedArgs:
-    """
-    Immutable result of argument parsing.
-    
-    This is the single source of truth for all argument parsing.
-    No method should re-parse arguments or derive parser/options from elsewhere.
-    All fields are read-only.
-    """
-    options: Tuple[str, ...] = ()
-    found_parser: Optional[str] = None
-    run_command: Optional[Tuple[str, ...]] = None
-    run_command_str: str = ''
-    slice_str: str = ''
-
-    @property
-    def has_about(self) -> bool:
-        return 'a' in self.options
-
-    @property
-    def has_debug(self) -> bool:
-        return 'd' in self.options
-
-    @property
-    def has_verbose_debug(self) -> bool:
-        return self.options.count('d') > 1
-
-    @property
-    def has_force_color(self) -> bool:
-        return 'C' in self.options
-
-    @property
-    def has_help(self) -> bool:
-        return 'h' in self.options
-
-    @property
-    def has_verbose_help(self) -> bool:
-        return self.options.count('h') > 1
-
-    @property
-    def has_category_help(self) -> bool:
-        return self.options.count('h') > 2
-
-    @property
-    def has_pretty(self) -> bool:
-        return 'p' in self.options
-
-    @property
-    def has_quiet(self) -> bool:
-        return 'q' in self.options
-
-    @property
-    def has_ignore_exceptions(self) -> bool:
-        return self.options.count('q') > 1
-
-    @property
-    def has_raw(self) -> bool:
-        return 'r' in self.options
-
-    @property
-    def has_slurp(self) -> bool:
-        return 's' in self.options
-
-    @property
-    def has_meta_out(self) -> bool:
-        return 'M' in self.options
-
-    @property
-    def has_unbuffer(self) -> bool:
-        return 'u' in self.options
-
-    @property
-    def has_version(self) -> bool:
-        return 'v' in self.options
-
-    @property
-    def has_yaml(self) -> bool:
-        return 'y' in self.options
-
-    @property
-    def has_bash_comp(self) -> bool:
-        return 'B' in self.options
-
-    @property
-    def has_zsh_comp(self) -> bool:
-        return 'Z' in self.options
-
-    @property
-    def has_monochrome(self) -> bool:
-        return 'm' in self.options
-
-
 class info():
     version: str = __version__
     description: str = 'JSON Convert'
@@ -159,7 +66,7 @@ if PYGMENTS_INSTALLED:
 
 
 class JcCli():
-    __slots__ = ('data_in', 'data_out', 'parser_module',
+    __slots__ = ('data_in', 'data_out', 'options', 'args', 'parser_module',
                  'parser_name', 'indent', 'pad', 'custom_colors',
                  'show_hidden', 'show_categories', 'ascii_only',
                  'json_separators', 'json_indent', 'run_timestamp',
@@ -167,12 +74,15 @@ class JcCli():
                  'force_color', 'mono', 'help_me', 'pretty', 'quiet',
                  'ignore_exceptions', 'raw', 'slurp', 'meta_out', 'unbuffer',
                  'version_info', 'yaml_output', 'bash_comp', 'zsh_comp',
-                 'magic_stdout', 'magic_stderr',
-                 'magic_returncode', 'slice_start', 'slice_end')
+                 'magic_found_parser', 'magic_options', 'magic_run_command',
+                 'magic_run_command_str', 'magic_stdout', 'magic_stderr',
+                 'magic_returncode', 'slice_str', 'slice_start', 'slice_end')
 
     def __init__(self) -> None:
         self.data_in: Optional[Union[str, bytes, TextIO, Iterable[str]]] = None
         self.data_out: Optional[Union[List[JSONDictType], JSONDictType]] = None
+        self.options: List[str] = []
+        self.args: List[str] = []
         self.parser_module: Optional[ModuleType] = None
         self.parser_name: Optional[str] = None
         self.indent: int = 0
@@ -187,10 +97,11 @@ class JcCli():
         self.inputlist: Optional[List[str]] = None
 
         # slicer
+        self.slice_str: str = ''
         self.slice_start: Optional[int] = None
         self.slice_end: Optional[int] = None
 
-        # cli options - derived from ParsedArgs, not set directly
+        # cli options
         self.about: bool = False
         self.debug: bool = False
         self.verbose_debug: bool = False
@@ -209,7 +120,11 @@ class JcCli():
         self.bash_comp: bool = False
         self.zsh_comp: bool = False
 
-        # magic runtime attributes - set by do_magic(), not by parsing
+        # magic attributes
+        self.magic_found_parser: Optional[str] = None
+        self.magic_options: List[str] = []
+        self.magic_run_command: Optional[List[str]] = None
+        self.magic_run_command_str: str = ''
         self.magic_stdout: Optional[Union[str, Iterable[str]]] = None
         self.magic_stderr: Optional[str] = None
         self.magic_returncode: int = 0
@@ -261,7 +176,7 @@ class JcCli():
                 String: PYGMENT_COLOR[color_list[3]] if color_list[3] != 'default' else PYGMENT_COLOR['green']                         # strings
             }
 
-    def set_mono(self, parsed: ParsedArgs) -> None:
+    def set_mono(self) -> None:
         """
         Sets mono attribute based on CLI options.
 
@@ -271,7 +186,7 @@ class JcCli():
 
         Also set mono to True if Pygments is not installed.
         """
-        self.mono = (parsed.has_monochrome or bool(os.getenv('NO_COLOR'))) and not self.force_color
+        self.mono = ('m' in self.options or bool(os.getenv('NO_COLOR'))) and not self.force_color
 
         if not sys.stdout.isatty() and not self.force_color:
             self.mono = True
@@ -380,13 +295,10 @@ class JcCli():
         helptext_string: str = f'{helptext_preamble_string}{parsers_string}\nOptions:\n{options_string}\n{slicetext_string}\n{helptext_end_string}'
         return helptext_string
 
-    def help_doc(self, parsed: ParsedArgs) -> None:
+    def help_doc(self) -> None:
         """
         Pages the parser documentation if a parser is found in the arguments,
         otherwise the general help text is printed.
-        
-        Uses the parser already identified by parse_arguments() to ensure
-        consistency with parser selection and command execution.
         """
         self.indent = 4
         self.pad = 22
@@ -395,8 +307,8 @@ class JcCli():
             utils._safe_print(self.parser_categories_text())
             return
 
-        if parsed.found_parser:
-            parser_name: str = self.parser_shortname(parsed.found_parser)
+        for arg in self.args:
+            parser_name: str = self.parser_shortname(arg)
 
             if parser_name in parsers:
                 p_info: ParserInfoType = parser_info(parser_name, documentation=True)
@@ -525,56 +437,34 @@ class JcCli():
                 self.ascii_only = True
                 print(self.json_out(), flush=self.unbuffer)
 
-    def parse_arguments(self, argv: Optional[List[str]] = None) -> ParsedArgs:
+    def magic_parser(self) -> None:
         """
-        Unified argument parsing for all CLI syntaxes.
-        
-        Returns an immutable ParsedArgs object - the single source of truth.
-        Does NOT store the result on the instance; caller must pass it
-        explicitly to all downstream methods.
-        
-        Parses arguments in a single pass and normalizes:
-        - Short option combinations (-ap -> ['a', 'p'])
-        - Long options (--pretty -> ['p'])
-        - Slicer patterns (start:end)
-        - Explicit parsers (--dig, --arp)
-        - Magic syntax command detection
-        - Magic parser lookup (including /proc paths)
+        Parse command arguments for magic syntax: `jc -p ls -al` and set the
+        magic attributes.
         """
-        if argv is None:
-            argv = sys.argv
+        # bail immediately if there are no args or a parser is defined
+        if len(self.args) <= 1 or (self.args[1].startswith('--') and self.args[1] not in long_options_map):
+            return
 
-        if len(argv) <= 1:
-            return ParsedArgs()
+        args_given: List[str] = self.args[1:]
 
-        args_given: List[str] = argv[1:]
-        local_options: List[str] = []
-        explicit_parser: Optional[str] = None
-        local_slice: str = ''
-
-        # create a dictionary of magic_commands to their respective parsers.
-        magic_dict = {}
-        for entry in all_parser_info():
-            magic_dict.update({mc: entry['argument'] for mc in entry.get('magic_commands', [])})
-
+        # find the options
         for arg in list(args_given):
-            # long option found - could be jc option or parser
+            # long option found - populate option list
             if arg in long_options_map:
-                local_options.extend(long_options_map[arg][0])
+                self.magic_options.extend(long_options_map[arg][0])
                 args_given.pop(0)
                 continue
 
-            # explicit parser found (e.g., --dig, --arp)
-            # continue processing remaining args as options
+            # parser found - use standard syntax
             if arg.startswith('--'):
-                explicit_parser = arg
-                args_given.pop(0)
-                continue
+                self.magic_options = []
+                return
 
             # slicer found
             if ':' in arg:
                 if SLICER_RE.match(arg):
-                    local_slice = arg
+                    self.slice_str = arg
                     args_given.pop(0)
                     continue
                 else:
@@ -582,71 +472,54 @@ class JcCli():
                     args_given.pop(0)
                     continue
 
-            # short option found - expand each character
+            # option found - populate option list
             if arg.startswith('-'):
-                local_options.extend(args_given.pop(0)[1:])
+                self.magic_options.extend(args_given.pop(0)[1:])
                 continue
 
-            # non-option found - this is the start of a magic command
-            # but only if we haven't already found an explicit parser
+            # command found if iterator didn't already stop - stop iterating
             else:
-                if explicit_parser is None:
-                    break
+                break
 
-        # if explicit parser was found, we're done with magic
-        if explicit_parser is not None:
-            return ParsedArgs(
-                options=tuple(local_options),
-                found_parser=explicit_parser,
-                slice_str=local_slice
-            )
-
-        # if no remaining args, it's just options like 'jc -ap'
+        # all options popped and no command found - for case like 'jc -x'
         if len(args_given) == 0:
-            return ParsedArgs(
-                options=tuple(local_options),
-                slice_str=local_slice
-            )
+            self.magic_options = []
+            return
 
-        # remaining args are the magic command
-        local_command = tuple(args_given)
-        try:
-            # python 3.8+
-            local_command_str = shlex.join(args_given)
-        except AttributeError:
-            # older python versions
-            local_command_str = ' '.join(args_given)
+        # create a dictionary of magic_commands to their respective parsers.
+        magic_dict = {}
+        for entry in all_parser_info():
+            magic_dict.update({mc: entry['argument'] for mc in entry.get('magic_commands', [])})
+
+        # set the command list and string
+        self.magic_run_command = args_given
+
+        if self.magic_run_command:
+            try:
+                # python 3.8+
+                self.magic_run_command_str = shlex.join(self.magic_run_command)
+            except AttributeError:
+                # older python versions
+                self.magic_run_command_str = ' '.join(self.magic_run_command)
 
         # try to get a parser for two_word_command, otherwise get one for one_word_command
-        one_word_command = local_command[0]
-        two_word_command = ' '.join(local_command[0:2])
-        found_parser = magic_dict.get(two_word_command, magic_dict.get(one_word_command))
-
-        # /proc paths are magic too - they use the 'proc' parser
-        if found_parser is None and one_word_command.startswith('/proc'):
-            found_parser = 'proc'
-
-        return ParsedArgs(
-            options=tuple(local_options),
-            found_parser=found_parser,
-            run_command=local_command,
-            run_command_str=local_command_str,
-            slice_str=local_slice
-        )
+        one_word_command: str = self.magic_run_command[0]
+        two_word_command: str = ' '.join(self.magic_run_command[0:2])
+        self.magic_found_parser = magic_dict.get(two_word_command, magic_dict.get(one_word_command))
 
     @staticmethod
     def open_text_file(path_string: str) -> str:
         with open(path_string, 'r') as f:
             return f.read()
 
-    def run_user_command(self, parsed: ParsedArgs) -> None:
+    def run_user_command(self) -> None:
         """
         Use subprocess to run the user's command.
         Updates magic_stdout, magic_stderr, and magic_returncode.
         """
-        if parsed.run_command:
+        if self.magic_run_command:
             proc = subprocess.Popen(
-                list(parsed.run_command),
+                self.magic_run_command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 close_fds=False,           # Allows inheriting file descriptors
@@ -658,7 +531,7 @@ class JcCli():
             self.magic_stdout = self.magic_stdout or '\n'
             self.magic_returncode = proc.returncode
 
-    def do_magic(self, parsed: ParsedArgs) -> None:
+    def do_magic(self) -> None:
         """
         Try to run the command and error if it's not found, executable, etc.
 
@@ -668,13 +541,11 @@ class JcCli():
         If multiple /proc files are detected, then a list of string output
         is sent to self.magic_stdout and a corresponding list of proc filenames
         is sent to self.inputlist.
-
-        NOTE: Parser for /proc is already set in parse_arguments(). This method
-        only executes the command and reads output.
         """
-        if parsed.run_command_str and parsed.run_command_str.startswith('/proc'):
+        if self.magic_run_command_str.startswith('/proc'):
             try:
-                filelist = shlex.split(parsed.run_command_str)
+                self.magic_found_parser = 'proc'
+                filelist = shlex.split(self.magic_run_command_str)
 
                 # multiple proc files detected
                 if len(filelist) > 1:
@@ -683,6 +554,7 @@ class JcCli():
                     self.inputlist = filelist
 
                     for file in self.inputlist:
+                        # multi_out.append(self.open_text_file('/Users/kelly/temp' + file))
                         multi_out.append(self.open_text_file(file))
 
                     self.magic_stdout = multi_out
@@ -690,6 +562,7 @@ class JcCli():
                 # single proc file
                 else:
                     file = filelist[0]
+                    # self.magic_stdout = self.open_text_file('/Users/kelly/temp' + file)
                     self.magic_stdout = self.open_text_file(file)
 
             except OSError as e:
@@ -711,9 +584,9 @@ class JcCli():
                 ])
                 self.exit_error()
 
-        elif parsed.found_parser and parsed.run_command:
+        elif self.magic_found_parser:
             try:
-                self.run_user_command(parsed)
+                self.run_user_command()
                 if self.magic_stderr:
                     utils._safe_print(self.magic_stderr[:-1], file=sys.stderr)
 
@@ -723,7 +596,7 @@ class JcCli():
 
                 error_msg = os.strerror(e.errno)
                 utils.error_message([
-                    f'"{parsed.run_command_str}" command could not be run: {error_msg}.'
+                    f'"{self.magic_run_command_str}" command could not be run: {error_msg}.'
                 ])
                 self.exit_error()
 
@@ -732,33 +605,38 @@ class JcCli():
                     raise
 
                 utils.error_message([
-                    f'"{parsed.run_command_str}" command could not be run. For details use the -d or -dd option.'
+                    f'"{self.magic_run_command_str}" command could not be run. For details use the -d or -dd option.'
                 ])
                 self.exit_error()
 
-        elif parsed.run_command is not None:
-            utils.error_message([f'"{parsed.run_command_str}" cannot be used with Magic syntax. Use "jc -h" for help.'])
+        elif self.magic_run_command is not None:
+            utils.error_message([f'"{self.magic_run_command_str}" cannot be used with Magic syntax. Use "jc -h" for help.'])
             self.exit_error()
 
-    def set_parser_module_and_parser_name(self, parsed: ParsedArgs) -> None:
-        """
-        Set the parser module and name based on the unified parsing results.
-        
-        Uses only the parser already identified by parse_arguments() to
-        ensure consistency with help display and command execution.
-        """
-        if parsed.found_parser:
-            self.parser_module = get_parser(parsed.found_parser)
-            self.parser_name = self.parser_shortname(parsed.found_parser)
+    def set_parser_module_and_parser_name(self) -> None:
+        if self.magic_found_parser:
+            self.parser_module = get_parser(self.magic_found_parser)
+            self.parser_name = self.parser_shortname(self.magic_found_parser)
+
         else:
-            utils.error_message(['Missing or incorrect arguments. Use "jc -h" for help.'])
-            self.exit_error()
+            found = False
+            for arg in self.args:
+                self.parser_name = self.parser_shortname(arg)
+
+                if self.parser_name in parsers:
+                    self.parser_module = get_parser(arg)
+                    found = True
+                    break
+
+            if not found:
+                utils.error_message(['Missing or incorrect arguments. Use "jc -h" for help.'])
+                self.exit_error()
 
         if sys.stdin.isatty() and self.magic_stdout is None:
             utils.error_message(['Missing piped data. Use "jc -h" for help.'])
             self.exit_error()
 
-    def add_metadata_to_output(self, parsed: Optional[ParsedArgs] = None) -> None:
+    def add_metadata_to_output(self) -> None:
         """
         This function mutates self.data_out in place. If the _jc_meta field
         does not already exist, it will be created with the metadata fields. If
@@ -777,8 +655,8 @@ class JcCli():
                 'slice_end': self.slice_end
             }
 
-            if parsed and parsed.run_command:
-                meta_obj['magic_command'] = list(parsed.run_command)
+            if self.magic_run_command:
+                meta_obj['magic_command'] = self.magic_run_command
                 meta_obj['magic_command_exit'] = self.magic_returncode
 
             if self.inputlist:
@@ -805,10 +683,10 @@ class JcCli():
                 utils.error_message(['Parser returned an unsupported object type.'])
                 self.exit_error()
 
-    def slicer(self, parsed: Optional[ParsedArgs] = None) -> None:
+    def slicer(self) -> None:
         """Slice input data lazily, if possible. Updates self.data_in"""
-        if parsed and parsed.slice_str:
-            slice_start_str, slice_end_str = parsed.slice_str.split(':', maxsplit=1)
+        if self.slice_str:
+            slice_start_str, slice_end_str = self.slice_str.split(':', maxsplit=1)
             if slice_start_str:
                 self.slice_start = int(slice_start_str)
             if slice_end_str:
@@ -816,7 +694,7 @@ class JcCli():
 
         self.data_in = utils.line_slice(self.data_in, self.slice_start, self.slice_end)
 
-    def create_slurp_output(self, parsed: Optional[ParsedArgs] = None) -> None:
+    def create_slurp_output(self) -> None:
         """
         Slurp input into a list. If input is coming from multiple /proc files
         using magic syntax, then also add a `_file` key to the output.
@@ -874,10 +752,9 @@ class JcCli():
             if self.meta_out:
                 self.data_out = {"result": self.data_out}
                 self.run_timestamp = datetime.now(timezone.utc)
-                if parsed:
-                    self.add_metadata_to_output(parsed)
+                self.add_metadata_to_output()
 
-    def create_normal_output(self, parsed: ParsedArgs) -> None:
+    def create_normal_output(self) -> None:
         """standard output - updates self.data_out"""
         if self.parser_module:
             self.data_out = self.parser_module.parse(
@@ -888,12 +765,12 @@ class JcCli():
 
             if self.meta_out:
                 self.run_timestamp = datetime.now(timezone.utc)
-                self.add_metadata_to_output(parsed)
+                self.add_metadata_to_output()
 
-    def streaming_parse_and_print(self, parsed: ParsedArgs) -> None:
+    def streaming_parse_and_print(self) -> None:
         """only supports UTF-8 string data for now"""
         self.data_in = sys.stdin
-        self.slicer(parsed)
+        self.slicer()
 
         if self.parser_module:
             result = self.parser_module.parse(
@@ -907,11 +784,11 @@ class JcCli():
                 self.data_out = line
                 if self.meta_out:
                     self.run_timestamp = datetime.now(timezone.utc)
-                    self.add_metadata_to_output(parsed)
+                    self.add_metadata_to_output()
 
                 self.safe_print_out()
 
-    def standard_parse_and_print(self, parsed: ParsedArgs) -> None:
+    def standard_parse_and_print(self) -> None:
         """supports binary and UTF-8 string data"""
         self.data_in = self.magic_stdout or sys.stdin.buffer.read()
 
@@ -922,13 +799,13 @@ class JcCli():
         except UnicodeDecodeError:
             pass
 
-        self.slicer(parsed)
+        self.slicer()
 
         if self.parser_module:
             if self.slurp:
-                self.create_slurp_output(parsed)
+                self.create_slurp_output()
             else:
-                self.create_normal_output(parsed)
+                self.create_normal_output()
 
             self.safe_print_out()
 
@@ -947,33 +824,45 @@ class JcCli():
         if sys.platform.startswith('win32'):
             os.system('')
 
-        # unified argument parsing - single source of truth for ALL operations
-        # Returns an immutable ParsedArgs object that is passed explicitly to all
-        # downstream methods. No method should re-derive options, parser, or
-        # command from any other source.
-        parsed: ParsedArgs = self.parse_arguments()
+        # parse magic syntax first: e.g. jc -p ls -al
+        self.args = sys.argv
+        self.magic_parser()
 
-        # Derive all flags directly from the immutable ParsedArgs object
-        self.about = parsed.has_about
-        self.debug = parsed.has_debug
-        self.verbose_debug = parsed.has_verbose_debug
-        self.force_color = parsed.has_force_color
-        self.help_me = parsed.has_help
-        self.show_hidden = parsed.has_verbose_help
-        self.show_categories = parsed.has_category_help
-        self.pretty = parsed.has_pretty
-        self.quiet = parsed.has_quiet
-        self.ignore_exceptions = parsed.has_ignore_exceptions
-        self.raw = parsed.has_raw
-        self.slurp = parsed.has_slurp
-        self.meta_out = parsed.has_meta_out
-        self.unbuffer = parsed.has_unbuffer
-        self.version_info = parsed.has_version
-        self.yaml_output = parsed.has_yaml
-        self.bash_comp = parsed.has_bash_comp
-        self.zsh_comp = parsed.has_zsh_comp
+        # add magic options to regular options
+        self.options.extend(self.magic_options)
 
-        self.set_mono(parsed)
+        # find options if magic_parser did not find a command
+        if not self.magic_found_parser:
+            for opt in self.args:
+                if SLICER_RE.match(opt):
+                    self.slice_str = opt
+
+                if opt in long_options_map:
+                    self.options.extend(long_options_map[opt][0])
+
+                if opt.startswith('-') and not opt.startswith('--'):
+                    self.options.extend(opt[1:])
+
+        self.about = 'a' in self.options
+        self.debug = 'd' in self.options
+        self.verbose_debug = self.options.count('d') > 1
+        self.force_color = 'C' in self.options
+        self.help_me = 'h' in self.options
+        self.show_hidden = self.options.count('h') > 1   # verbose help
+        self.show_categories = self.options.count('h') > 2
+        self.pretty = 'p' in self.options
+        self.quiet = 'q' in self.options
+        self.ignore_exceptions = self.options.count('q') > 1
+        self.raw = 'r' in self.options
+        self.slurp = 's' in self.options
+        self.meta_out = 'M' in self.options
+        self.unbuffer = 'u' in self.options
+        self.version_info = 'v' in self.options
+        self.yaml_output = 'y' in self.options
+        self.bash_comp = 'B' in self.options
+        self.zsh_comp = 'Z' in self.options
+
+        self.set_mono()
         self.set_custom_colors()
 
         if self.quiet:
@@ -988,7 +877,7 @@ class JcCli():
             self.exit_clean()
 
         if self.help_me:
-            self.help_doc(parsed)
+            self.help_doc()
             self.exit_clean()
 
         if self.version_info:
@@ -1004,10 +893,10 @@ class JcCli():
             self.exit_clean()
 
         # if magic syntax used, try to run the command and set the magic attributes
-        self.do_magic(parsed)
+        self.do_magic()
 
-        # set parser_module and parser_name based on parsed args
-        self.set_parser_module_and_parser_name(parsed)
+        # set parser_module and parser_name based on magic parser or user-supplied
+        self.set_parser_module_and_parser_name()
 
         # parse and print to stdout
         if self.parser_module:
@@ -1020,11 +909,11 @@ class JcCli():
 
             try:
                 if _parser_is_streaming(self.parser_module):
-                    self.streaming_parse_and_print(parsed)
+                    self.streaming_parse_and_print()
                     self.exit_clean()
 
                 else:
-                    self.standard_parse_and_print(parsed)
+                    self.standard_parse_and_print()
                     self.exit_clean()
 
             except BrokenPipeError:
