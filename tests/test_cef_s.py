@@ -23,7 +23,7 @@ class MyTests(unittest.TestCase):
         """
         Test 'cef' with no data
         """
-        self.assertEqual([item[0] for item in list(jc.parsers.cef_s.parse([], quiet=True))], [])
+        self.assertEqual(list(jc.parsers.cef_s.parse([], quiet=True)), [])
 
     def test_cef_s_sample(self):
         """

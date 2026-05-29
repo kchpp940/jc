@@ -13,7 +13,7 @@ import subprocess
 from typing import List, Dict, Iterable, Union, Optional, TextIO
 from types import ModuleType
 from .lib import (
-    __version__, parser_info, all_parser_info, parsers, get_parser, _parser_is_streaming,
+    __version__, parser_info, all_parser_info, is_valid_parser, get_parser, _parser_is_streaming,
     parser_mod_list, standard_parser_mod_list, plugin_parser_mod_list, streaming_parser_mod_list,
     slurpable_parser_mod_list, _parser_is_slurpable
 )
@@ -310,7 +310,7 @@ class JcCli():
         for arg in self.args:
             parser_name: str = self.parser_shortname(arg)
 
-            if parser_name in parsers:
+            if is_valid_parser(parser_name):
                 p_info: ParserInfoType = parser_info(parser_name, documentation=True)
                 compatible: str = ', '.join(p_info.get('compatible', ['unknown']))
                 docs: str = p_info.get('documentation', 'No documentation available.')
@@ -623,7 +623,7 @@ class JcCli():
             for arg in self.args:
                 self.parser_name = self.parser_shortname(arg)
 
-                if self.parser_name in parsers:
+                if is_valid_parser(self.parser_name):
                     self.parser_module = get_parser(arg)
                     found = True
                     break

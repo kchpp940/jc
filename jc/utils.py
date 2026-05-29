@@ -509,28 +509,6 @@ def _lazy_splitlines(text: str) -> Iterable[str]:
         yield text[start:]
 
 
-class _SlicedIterable:
-    """Wrapper for sliced iterables that carries the original line offset.
-
-    Used by ``line_slice`` when slicing streaming parser input.  The
-    ``_jc_line_offset`` attribute is detected by ``_LineTracker`` in
-    ``jc.streaming`` so that ``_jc_meta`` line ranges refer to the original
-    (pre-slice) input line numbers.
-    """
-
-    __slots__ = ('_iter', '_jc_line_offset')
-
-    def __init__(self, data: Iterable[str], offset: int) -> None:
-        self._iter = iter(data)
-        self._jc_line_offset: int = offset
-
-    def __iter__(self):
-        return self
-
-    def __next__(self) -> str:
-        return next(self._iter)
-
-
 def line_slice(
         data: Union[str, Iterable[str], TextIO, bytes, None],
         slice_start: Optional[int] = None,
@@ -582,17 +560,11 @@ def line_slice(
                 and (slice_end is None or slice_end >= 0) \
                 and data:
 
-                offset = slice_start if slice_start is not None else 0
-                return _SlicedIterable(islice(data, slice_start, slice_end), offset)
+                return islice(data, slice_start, slice_end)
 
             # negative slices found (non-lazy, uses more memory)
             elif data:
-                data_list = list(data)
-                sliced = data_list[slice_start:slice_end]
-                actual_start = slice_start if slice_start is not None else 0
-                if actual_start < 0:
-                    actual_start = len(data_list) + actual_start
-                return _SlicedIterable(sliced, max(0, actual_start))
+                return list(data)[slice_start:slice_end]
 
     return data
 
