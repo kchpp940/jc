@@ -3,51 +3,58 @@
 # Requires the yapf python library
 # use ./docgen all to generate all docs
 
-cd jc
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR"
+DOC2MD="$PROJECT_ROOT/doc2md.py"
+DOCS_DIR="$PROJECT_ROOT/docs"
+PARSERS_DOCS_DIR="$DOCS_DIR/parsers"
+
+cd "$PROJECT_ROOT"
+
 (
     echo Building docs for: package
-    ../doc2md.py jc > ../docs/readme.md && echo "+++ package docs complete" || echo "*** PACKAGE DOCS FAILED ***"
+    "$DOC2MD" jc > "$DOCS_DIR/readme.md" && echo "+++ package docs complete" || echo "*** PACKAGE DOCS FAILED ***"
 ) &
 
 (
     echo Building docs for: lib
-    ../doc2md.py jc.lib > ../docs/lib.md && echo "+++ lib docs complete" || echo "*** LIB DOCS FAILED ***"
+    "$DOC2MD" jc.lib > "$DOCS_DIR/lib.md" && echo "+++ lib docs complete" || echo "*** LIB DOCS FAILED ***"
 ) &
 
 (
     echo Building docs for: utils
-    ../doc2md.py jc.utils > ../docs/utils.md && echo "+++ utils docs complete" || echo "*** UTILS DOCS FAILED ***"
+    "$DOC2MD" jc.utils > "$DOCS_DIR/utils.md" && echo "+++ utils docs complete" || echo "*** UTILS DOCS FAILED ***"
 ) &
 
 (
     echo Building docs for: streaming
-    ../doc2md.py jc.streaming > ../docs/streaming.md && echo "+++ streaming docs complete" || echo "*** STREAMING DOCS FAILED ***"
+    "$DOC2MD" jc.streaming > "$DOCS_DIR/streaming.md" && echo "+++ streaming docs complete" || echo "*** STREAMING DOCS FAILED ***"
 ) &
 
 (
     echo Building docs for: universal parser
-    ../doc2md.py jc.parsers.universal > ../docs/parsers/universal.md && echo "+++ universal parser docs complete" || echo "*** UNIVERSAL PARSER DOCS FAILED ***"
+    "$DOC2MD" jc.parsers.universal > "$PARSERS_DOCS_DIR/universal.md" && echo "+++ universal parser docs complete" || echo "*** UNIVERSAL PARSER DOCS FAILED ***"
 ) &
 
-# a bit of inception here... jc is being used to help
-# automate the generation of its own documentation. :)
-
-# pull jc parser objects into a bash array from jq
-# filter out any plugin parsers
+# get parser list using standardized metadata policy for documentation
 parsers=()
-while read -r value
-do
-    parsers+=("$value")
-done < <(jc -a | jq -c '.parsers[] | select(.plugin != true)')
+while IFS= read -r parser_name; do
+    [ -n "$parser_name" ] && parsers+=("$parser_name")
+done < <(python3 -c "
+import sys
+sys.path.insert(0, '$PROJECT_ROOT')
+from jc.metadata_policy import for_docs
+for p in for_docs():
+    print(p['name'])
+")
 
-for parser in "${parsers[@]}"; do
-    parser_name=$(jq -r '.name' <<< "$parser")
-        {
-            if [[ $1 == "all" ]] || ! git diff --quiet --exit-code HEAD~5 -- "parsers/${parser_name}.py"; then
-                echo "Building docs for: ${parser_name}"
-                ../doc2md.py jc.parsers."${parser_name}" > ../docs/parsers/"${parser_name}".md && echo "+++ ${parser_name} docs complete" || echo "*** ${parser_name} DOCS FAILED ***"
-            fi
-        } &
+for parser_name in "${parsers[@]}"; do
+    {
+        if [[ $1 == "all" ]] || ! git diff --quiet --exit-code HEAD~5 -- "jc/parsers/${parser_name}.py" 2>/dev/null; then
+            echo "Building docs for: ${parser_name}"
+            "$DOC2MD" jc.parsers."${parser_name}" > "$PARSERS_DOCS_DIR/${parser_name}.md" && echo "+++ ${parser_name} docs complete" || echo "*** ${parser_name} DOCS FAILED ***"
+        fi
+    } &
 done
 wait
 echo "Document Generation Complete"

@@ -143,28 +143,6 @@ Get a list of standard parser module names to be used in
 Get a list of streaming parser module names to be used in
 `parse()`, `parser_info()`, and `get_help()`. This list is a subset of
 `parser_mod_list()`.
-
-### parser_index
-
-    parser_index(
-        show_hidden: bool = False,
-        show_deprecated: bool = False,
-        source: str | None = None,
-        streaming_only: bool | None = None,
-        slurpable_only: bool = False,
-        include_override_only: bool = False,
-    ) -> list[dict]
-
-Query the unified parser index with filtering options. Returns a list of
-dictionaries containing metadata for each parser, including `source`
-('builtin' or 'plugin'), `overrides_builtin`, `hidden`, `deprecated`, etc.
-
-### refresh_parser_index
-
-    refresh_parser_index() -> list
-
-Rescan the local plugins directory and rebuild the parser index. Useful
-when plugins are added or removed at runtime.
 """
 from .lib import (
     __version__ as __version__,
@@ -175,9 +153,6 @@ from .lib import (
     standard_parser_mod_list as standard_parser_mod_list,
     streaming_parser_mod_list as streaming_parser_mod_list,
     slurpable_parser_mod_list as slurpable_parser_mod_list,
-    parser_index as parser_index,
-    is_valid_parser as is_valid_parser,
-    refresh_parser_index as refresh_parser_index,
     parser_info as parser_info,
     all_parser_info as all_parser_info,
     get_help as get_help

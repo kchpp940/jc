@@ -92,10 +92,11 @@ class MyTests(unittest.TestCase):
         self.assertEqual(jc.lib._modname_to_cliname('module_name'), 'module-name')
 
     def test_lib_all_parser_info_show_deprecated(self):
-        from jc.lib import _ParserEntry
-        old_index = jc.lib._parser_index
-        old_get_parser = jc.lib.get_parser
+        # save old state
+        old_parsers = deepcopy(jc.lib.parsers)
+        old_get_parser = deepcopy(jc.lib.get_parser)
 
+        # mock data
         class mock_parser_info:
             version = "1.1"
             description = "`deprecated` command parser"
@@ -106,69 +107,46 @@ class MyTests(unittest.TestCase):
             deprecated = True
 
         class mock_parser:
-            __name__ = 'jc.parsers.deprecated'
             info = mock_parser_info
             def parse():
                 pass
 
-        jc.lib._parser_index = [
-            _ParserEntry(
-                cli_name='deprecated',
-                mod_name='deprecated',
-                argument='--deprecated',
-                source='builtin',
-                hidden=False,
-                deprecated=True,
-                streaming=False,
-                slurpable=False,
-                overrides_builtin=False,
-            )
-        ]
+        jc.lib.parsers = ['deprecated']
         jc.lib.get_parser = lambda x: mock_parser  # type: ignore
         result = jc.lib.all_parser_info(show_deprecated=True)
 
-        jc.lib._parser_index = old_index
+        # reset
+        jc.lib.parsers = old_parsers
         jc.lib.get_parser = old_get_parser
 
         self.assertEqual(len(result), 1)
 
     def test_lib_all_parser_info_show_hidden(self):
-        from jc.lib import _ParserEntry
-        old_index = jc.lib._parser_index
-        old_get_parser = jc.lib.get_parser
+        # save old state
+        old_parsers = deepcopy(jc.lib.parsers)
+        old_get_parser = deepcopy(jc.lib.get_parser)
 
+        # mock data
         class mock_parser_info:
             version = "1.1"
-            description = "`hidden` command parser"
+            description = "`deprecated` command parser"
             author = "nobody"
             author_email = "nobody@gmail.com"
             compatible = ["linux", "darwin"]
-            magic_commands = ["hidden"]
+            magic_commands = ["deprecated"]
             hidden = True
 
         class mock_parser:
-            __name__ = 'jc.parsers.hidden'
             info = mock_parser_info
             def parse():
                 pass
 
-        jc.lib._parser_index = [
-            _ParserEntry(
-                cli_name='hidden',
-                mod_name='hidden',
-                argument='--hidden',
-                source='builtin',
-                hidden=True,
-                deprecated=False,
-                streaming=False,
-                slurpable=False,
-                overrides_builtin=False,
-            )
-        ]
+        jc.lib.parsers = ['deprecated']
         jc.lib.get_parser = lambda x: mock_parser  # type: ignore
         result = jc.lib.all_parser_info(show_hidden=True)
 
-        jc.lib._parser_index = old_index
+        # reset
+        jc.lib.parsers = old_parsers
         jc.lib.get_parser = old_get_parser
 
         self.assertEqual(len(result), 1)
