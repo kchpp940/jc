@@ -1,17 +1,15 @@
 """jc - JSON Convert shell_completions module"""
 
 from string import Template
-from typing import Optional, List, Union
 from .cli_data import long_options_map
-from .lib import ParserList, ParserInfoType
+from .lib import all_parser_info
 
 
 bash_template = Template('''\
 _jc()
 {
     local cur prev words cword jc_commands jc_parsers jc_options \\
-          jc_about_options jc_about_mod_options jc_help_options jc_special_options \\
-          jc_parser_subcmd jc_filter_options jc_filter_value_options
+          jc_about_options jc_about_mod_options jc_help_options jc_special_options
 
     jc_commands=(${bash_commands})
     jc_parsers=(${bash_parsers})
@@ -20,40 +18,9 @@ _jc()
     jc_about_mod_options=(${bash_about_mod_options})
     jc_help_options=(${bash_help_options})
     jc_special_options=(${bash_special_options})
-    jc_parser_subcmd=(${bash_parser_subcmd})
-    jc_filter_options=(${bash_filter_options})
-    jc_filter_value_options=(${bash_filter_value_options})
 
     COMPREPLY=()
     _get_comp_words_by_ref cur prev words cword
-
-    # if 'parsers' subcommand is found, enter parser discovery completion mode
-    for i in "$${words[@]::$${#words[@]}-1}"; do
-        if [[ "$${i}" == "parsers" ]]; then
-            # --filter-category values
-            if [[ "$${prev}" == "--filter-category" ]]; then
-                COMPREPLY=( $$( compgen -W "${bash_category_values}" -- "$${cur}" ) )
-                return 0
-            fi
-            # --filter-platform values
-            if [[ "$${prev}" == "--filter-platform" ]]; then
-                COMPREPLY=( $$( compgen -W "${bash_platform_values}" -- "$${cur}" ) )
-                return 0
-            fi
-            # --parser-format values
-            if [[ "$${prev}" == "--parser-format" ]]; then
-                COMPREPLY=( $$( compgen -W "text json yaml" -- "$${cur}" ) )
-                return 0
-            fi
-            # --filter-name value (free text, no completion)
-            if [[ "$${prev}" == "--filter-name" ]]; then
-                return 0
-            fi
-            # complete filter options and format
-            COMPREPLY=( $$( compgen -W "$${jc_filter_options[*]} $${jc_filter_value_options[*]} --parser-format --pretty" -- "$${cur}" ) )
-            return 0
-        fi
-    done
 
     # if jc_about_options are found anywhere in the line, then only complete from jc_about_mod_options
     for i in "$${words[@]::$${#words[@]}-1}"; do
@@ -123,8 +90,8 @@ _jc()
         fi
     done
 
-    # default completion (includes 'parsers' subcommand)
-    COMPREPLY=( $$( compgen -W "$${jc_options[*]} $${jc_about_options[*]} $${jc_help_options[*]} $${jc_special_options[*]} $${jc_parsers[*]} $${jc_commands[*]} $${jc_parser_subcmd[*]}" \\
+    # default completion
+    COMPREPLY=( $$( compgen -W "$${jc_options[*]} $${jc_about_options[*]} $${jc_help_options[*]} $${jc_special_options[*]} $${jc_parsers[*]} $${jc_commands[*]}" \\
         -- "$${cur}" ) )
 } &&
 complete -F _jc jc
@@ -141,10 +108,7 @@ _jc() {
              jc_about_options jc_about_options_describe \\
              jc_about_mod_options jc_about_mod_options_describe \\
              jc_help_options jc_help_options_describe \\
-             jc_special_options jc_special_options_describe \\
-             jc_parser_subcmd jc_parser_subcmd_describe \\
-             jc_filter_options jc_filter_options_describe \\
-             jc_filter_value_options jc_filter_value_options_describe
+             jc_special_options jc_special_options_describe
 
     jc_commands=(${zsh_commands})
     jc_commands_describe=(
@@ -174,52 +138,6 @@ _jc() {
     jc_special_options_describe=(
         ${zsh_special_options_describe}
     )
-    jc_parser_subcmd=('parsers')
-    jc_parser_subcmd_describe=(
-        'parsers:list and filter available parsers'
-    )
-    jc_filter_options=(--filter-streaming --filter-no-streaming --filter-slurpable --filter-no-slurpable --filter-plugin --filter-no-plugin --list-parsers)
-    jc_filter_options_describe=(
-        '--filter-streaming:filter for streaming parsers only'
-        '--filter-no-streaming:filter for non-streaming parsers only'
-        '--filter-slurpable:filter for slurpable parsers only'
-        '--filter-no-slurpable:filter for non-slurpable parsers only'
-        '--filter-plugin:filter for local plugin parsers only'
-        '--filter-no-plugin:filter for built-in parsers only'
-        '--list-parsers:list available parsers'
-    )
-    jc_filter_value_options=(--filter-category --filter-platform --filter-name --parser-format)
-    jc_filter_value_options_describe=(
-        '--filter-category:filter by category tags'
-        '--filter-platform:filter by compatible platform'
-        '--filter-name:filter by name substring'
-        '--parser-format:output format: text, json, yaml'
-    )
-
-    # if 'parsers' subcommand is found, enter parser discovery completion mode
-    for i in $${words:0:-1}; do
-        if [[ "$${i}" == "parsers" ]]; then
-            case "$${words[-1]}" in
-                --filter-category)
-                    _describe 'categories' '(${zsh_category_values_describe})'
-                    return 0
-                    ;;
-                --filter-platform)
-                    _describe 'platforms' '(${zsh_platform_values_describe})'
-                    return 0
-                    ;;
-                --parser-format)
-                    _describe 'formats' '(text:human-readable text json:JSON output yaml:YAML output)'
-                    return 0
-                    ;;
-                --filter-name)
-                    return 0
-                    ;;
-            esac
-            _describe 'filter options' jc_filter_options_describe -- jc_filter_value_options_describe
-            return 0
-        fi
-    done
 
     # if jc_about_options are found anywhere in the line, then only complete from jc_about_mod_options
     for i in $${words:0:-1}; do
@@ -293,8 +211,8 @@ _jc() {
         fi
     done
 
-    # default completion (includes 'parsers' subcommand)
-    _describe 'commands' jc_options_describe -- jc_about_options_describe -- jc_help_options_describe -- jc_special_options_describe -- jc_parsers_describe -- jc_commands_describe -- jc_parser_subcmd_describe
+    # default completion
+    _describe 'commands' jc_options_describe -- jc_about_options_describe -- jc_help_options_describe -- jc_special_options_describe -- jc_parsers_describe -- jc_commands_describe
 }
 
 _jc
@@ -305,65 +223,40 @@ about_mod_options = ['--pretty', '-p', '--yaml-out', '-y', '--monochrome', '-m',
 help_options = ['--help', '-h']
 special_options = ['--version', '-v', '--bash-comp', '-B', '--zsh-comp', '-Z']
 
-CATEGORY_VALUES = ['command', 'generic', 'standard', 'file', 'string', 'binary', 'slurpable']
-PLATFORM_VALUES = ['linux', 'darwin', 'win32', 'cygwin', 'aix', 'freebsd']
+def get_commands():
+    command_list = []
+    for cmd in all_parser_info():
+        if 'magic_commands' in cmd:
+            command_list.extend(cmd['magic_commands'])
 
-
-def get_parser_list(
-    show_hidden: bool = True,
-    category: Optional[Union[str, List[str]]] = None,
-    platform: Optional[Union[str, List[str]]] = None,
-    streaming: Optional[bool] = None,
-    slurpable: Optional[bool] = None,
-    plugin: Optional[bool] = None,
-    name: Optional[str] = None
-) -> ParserList:
-    """
-    Unified parser discovery for shell completions.
-    Uses the same ParserList.discover() as CLI and Python API.
-    """
-    return ParserList.discover(
-        category=category,
-        platform=platform,
-        streaming=streaming,
-        slurpable=slurpable,
-        plugin=plugin,
-        name=name,
-        show_hidden=show_hidden,
-        show_deprecated=False
-    )
-
-
-def get_commands(parser_list: Optional[ParserList] = None):
-    if parser_list is None:
-        parser_list = get_parser_list()
-
-    return parser_list.magic_commands()
+    return sorted(list(set([i.split()[0] for i in command_list])))
 
 
 def get_options():
     options_list = []
     for opt in long_options_map:
         options_list.append(opt)
-        short_opt = long_options_map[opt][0]
-        if short_opt:
-            options_list.append('-' + short_opt)
+        options_list.append('-' + long_options_map[opt][0])
 
     return options_list
 
 
-def get_parsers(parser_list: Optional[ParserList] = None):
-    if parser_list is None:
-        parser_list = get_parser_list()
+def get_parsers():
+    p_list = []
+    for cmd in all_parser_info(show_hidden=True):
+        if 'argument' in cmd:
+            p_list.append(cmd['argument'])
 
-    return parser_list.arguments()
+    return p_list
 
 
-def get_parsers_descriptions(parser_list: Optional[ParserList] = None):
-    if parser_list is None:
-        parser_list = get_parser_list()
+def get_parsers_descriptions():
+    pd_list = []
+    for p in all_parser_info(show_hidden=True):
+        if 'description' in p:
+            pd_list.append(f"'{p['argument']}:{p['description']}'")
 
-    return parser_list.descriptions()
+    return pd_list
 
 
 def get_zsh_command_descriptions(command_list):
@@ -379,34 +272,18 @@ def get_descriptions(opt_list):
     opt_desc_list = []
 
     for item in opt_list:
+        # get long options
         if item in long_options_map:
             opt_desc_list.append(f"'{item}:{long_options_map[item][1]}'")
             continue
 
+        # get short options
         for k, v in long_options_map.items():
-            if v[0] and item[1:] == v[0]:
+            if item[1:] == v[0]:
                 opt_desc_list.append(f"'{item}:{v[1]}'")
                 continue
 
     return opt_desc_list
-
-
-def _get_filter_options():
-    """Return filter flag options (no value needed)."""
-    return [
-        '--filter-streaming', '--filter-no-streaming',
-        '--filter-slurpable', '--filter-no-slurpable',
-        '--filter-plugin', '--filter-no-plugin',
-        '--list-parsers'
-    ]
-
-
-def _get_filter_value_options():
-    """Return filter options that require a value."""
-    return [
-        '--filter-category', '--filter-platform',
-        '--filter-name', '--parser-format'
-    ]
 
 
 def bash_completion():
@@ -428,11 +305,6 @@ def bash_completion():
     help_options_str = ' '.join(help_options)
     special_options_str = ' '.join(special_options)
     commands_str = ' '.join(get_commands())
-    filter_options_str = ' '.join(_get_filter_options())
-    filter_value_options_str = ' '.join(_get_filter_value_options())
-    category_values_str = ' '.join(CATEGORY_VALUES)
-    platform_values_str = ' '.join(PLATFORM_VALUES)
-
     return bash_template.substitute(
         bash_parsers=parsers_str,
         bash_special_options=special_options_str,
@@ -440,12 +312,7 @@ def bash_completion():
         bash_about_mod_options=about_mod_options_str,
         bash_help_options=help_options_str,
         bash_options=options_str,
-        bash_commands=commands_str,
-        bash_parser_subcmd='parsers',
-        bash_filter_options=filter_options_str,
-        bash_filter_value_options=filter_value_options_str,
-        bash_category_values=category_values_str,
-        bash_platform_values=platform_values_str
+        bash_commands=commands_str
     )
 
 
@@ -476,13 +343,6 @@ def zsh_completion():
     commands_str = ' '.join(get_commands())
     commands_describe = '\n        '.join(get_zsh_command_descriptions(get_commands()))
 
-    category_describe = '\n        '.join(
-        f"'{c}:{c} parser category'" for c in CATEGORY_VALUES
-    )
-    platform_describe = '\n        '.join(
-        f"'{p}:{p} platform'" for p in PLATFORM_VALUES
-    )
-
     return zsh_template.substitute(
         zsh_parsers=parsers_str,
         zsh_parsers_describe=parsers_describe,
@@ -497,7 +357,5 @@ def zsh_completion():
         zsh_options=options_str,
         zsh_options_describe=options_describe,
         zsh_commands=commands_str,
-        zsh_commands_describe=commands_describe,
-        zsh_category_values_describe=category_describe,
-        zsh_platform_values_describe=platform_describe
+        zsh_commands_describe=commands_describe
     )

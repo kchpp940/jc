@@ -51,12 +51,7 @@ Schema:
       "round_trip_ms_max":          float,    # null if not set
       "round_trip_ms_stddev":       float,    # null if not set
 
-      # below object only exists if using -qq or ignore_exceptions=True
-      "_jc_meta": {
-        "success":                  boolean,  # false if error parsing
-        "error":                    string,   # exists if "success" is false
-        "line":                     string    # exists if "success" is false
-      }
+      # _jc_meta schema: see jc.streaming._JC_META_PROGRESS_SCHEMA
     }
 
     [0] 'reply', 'timeout', 'summary', etc. See `_error_type.type_map`

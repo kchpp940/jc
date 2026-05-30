@@ -143,65 +143,6 @@ Get a list of standard parser module names to be used in
 Get a list of streaming parser module names to be used in
 `parse()`, `parser_info()`, and `get_help()`. This list is a subset of
 `parser_mod_list()`.
-
-### filter_parsers
-
-    filter_parsers(
-        category: str | list[str] | None = None,
-        platform: str | list[str] | None = None,
-        streaming: bool | None = None,
-        slurpable: bool | None = None,
-        plugin: bool | None = None,
-        name: str | None = None,
-        show_hidden: bool = False,
-        show_deprecated: bool = False
-    ) -> list[dict]
-
-Filter and return parser metadata based on various criteria.
-
-This is the unified parser discovery and filtering entrypoint used by
-CLI, Python API, and shell completion.
-
-All filter criteria are ANDed together. For list fields (category,
-platform), a parser matches if any of its values intersects with the
-filter values.
-
-Example:
-
-    >>> import jc
-    >>> # Find all Linux-compatible streaming parsers
-    >>> streaming_linux = jc.filter_parsers(platform='linux', streaming=True)
-    >>> # Find all slurpable command parsers
-    >>> slurpable_cmd = jc.filter_parsers(category=['command'], slurpable=True)
-
-### ParserFilter
-
-    ParserFilter dataclass for advanced parser filtering.
-
-Use this to create reusable filter criteria objects.
-
-### ParserList
-
-    ParserList dataclass for parser discovery results.
-
-This is the unified parser discovery result object used by CLI,
-Python API, and shell completions. It provides multiple output
-formats and convenience methods.
-
-Example:
-
-    >>> import jc
-    >>> plist = jc.ParserList.discover(category='command', streaming=True)
-    >>> print(f'Found {len(plist)} parsers')
-    >>> print(plist.to_json(pretty=True))  # JSON for scripting
-    >>> print(plist.to_yaml())             # YAML for scripting
-    >>> print(plist.to_text())             # Human-readable text
-
-    >>> # Access various data views
-    >>> plist.names()            # Module names
-    >>> plist.arguments()        # CLI argument names
-    >>> plist.magic_commands()   # Magic command names
-    >>> plist.by_category()      # Grouped by category tags
 """
 from .lib import (
     __version__ as __version__,
@@ -214,8 +155,5 @@ from .lib import (
     slurpable_parser_mod_list as slurpable_parser_mod_list,
     parser_info as parser_info,
     all_parser_info as all_parser_info,
-    filter_parsers as filter_parsers,
-    ParserFilter as ParserFilter,
-    ParserList as ParserList,
     get_help as get_help
 )

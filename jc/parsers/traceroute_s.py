@@ -47,12 +47,7 @@ Schema:
         }
       ]
 
-      # below object only exists if using -qq or ignore_exceptions=True
-      "_jc_meta": {
-        "success":            boolean,  # false if error parsing
-        "error":              string,   # exists if "success" is false
-        "line":               string    # exists if "success" is false
-      }
+      # _jc_meta schema: see jc.streaming._JC_META_PROGRESS_SCHEMA
     }
 
 Examples:

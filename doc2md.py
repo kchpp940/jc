@@ -6,7 +6,7 @@ Convert parser doc string to markdown
 import sys
 import importlib
 from inspect import isfunction, signature, cleandoc
-import yapf  # type: ignore
+import textwrap
 
 ignore_lib_functions = [
     'cast',
@@ -15,9 +15,51 @@ ignore_lib_functions = [
     'namedtuple'
 ]
 
+
+def _format_signature(name: str, sig: str) -> str:
+    """
+    Format a function signature using yapf if available.
+    Falls back to the raw signature string if yapf is not installed.
+    """
+    try:
+        import yapf  # type: ignore
+        formatted = yapf.yapf_api.FormatCode(f'def {name}{sig}:\n    pass')
+        return formatted[0].split(':\n    pass')[0]
+    except ImportError:
+        return f'def {name}{sig}'
+
 mod_path = sys.argv[1]
 mod_name = mod_path.split('.')[-1]
 module = importlib.import_module(f'{mod_path}')
+
+_JC_META_REF = '# _jc_meta schema: see jc.streaming._JC_META_PROGRESS_SCHEMA'
+
+
+def expand_jc_meta_schema(doc: str) -> str:
+    """
+    Expand the _jc_meta schema reference inline in docstrings.
+    Replaces the reference line with the actual schema from
+    jc.streaming._JC_META_PROGRESS_SCHEMA so that generated
+    documentation shows the full field descriptions.
+    """
+    lines = doc.split('\n')
+    found = False
+    for i, line in enumerate(lines):
+        if _JC_META_REF in line:
+            found = True
+            import jc.streaming
+            schema = jc.streaming._JC_META_PROGRESS_SCHEMA
+            dedented_schema = textwrap.dedent(schema).strip('\n')
+            base_indent = len(line) - len(line.lstrip())
+            indented_schema = '\n'.join(
+                ' ' * base_indent + s if s else s
+                for s in dedented_schema.split('\n')
+            )
+            lines[i] = indented_schema
+            break
+    if not found:
+        return doc
+    return '\n'.join(lines)
 
 ######## HEADER ########
 header = f'''[Home](https://kellyjonbrazil.github.io/jc/)
@@ -26,7 +68,7 @@ header = f'''[Home](https://kellyjonbrazil.github.io/jc/)
 # {mod_path}
 '''
 
-summary = module.__doc__ or ''
+summary = expand_jc_meta_schema(module.__doc__ or '')
 
 functions = []
 for attribute in dir(module):
@@ -53,11 +95,11 @@ for api in functions:
 
     this_header = f'<a id="{mod_path}.{api}"></a>\n\n### {api}\n'
     this_sig = str(signature(api_function))
-    formatted_sig = yapf.yapf_api.FormatCode(f'def {api_function.__name__}{this_sig}:\n    pass' )
-    formatted_sig = formatted_sig[0].split(':\n    pass')[0]
+    formatted_sig = _format_signature(api_function.__name__, this_sig)
     this_name_and_sig = f'{this_header}\n```python\n{formatted_sig}\n```'
 
     this_doc = cleandoc(api_function.__doc__)
+    this_doc = expand_jc_meta_schema(this_doc)
     api_docs = api_docs + this_name_and_sig + '\n\n' + this_doc + '\n\n'
 
 ######## FOOTER ########

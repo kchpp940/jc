@@ -50,12 +50,7 @@ Blank values converted to `null`/`None`.
       "message":                    string,
       "unparsable":                 string  # [2]
 
-      # below object only exists if using -qq or ignore_exceptions=True
-      "_jc_meta": {
-        "success":      boolean,     # false if error parsing
-        "error":        string,      # exists if "success" is false
-        "line":         string       # exists if "success" is false
-      }
+      # _jc_meta schema: see jc.streaming._JC_META_PROGRESS_SCHEMA
     }
 
     [0] naive timestamp if "timestamp" field is parsable, else null
