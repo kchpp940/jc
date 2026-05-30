@@ -1,25 +1,11 @@
-"""jc - JSON Convert streaming utils
-
-Thin adapter layer over the unified renderer interfaces.
-All success/error object construction is owned by StreamingMetaInjector
-and StreamingErrorWrapper; this module only wires the public API to them.
-"""
+"""jc - JSON Convert streaming utils"""
 
 from functools import wraps
 from typing import Tuple, Union, Iterable, Callable, TypeVar, cast, Any
-
 from .jc_types import JSONDictType
-from .renderers import (
-    RenderingContext,
-    StreamingMetaInjector,
-    StreamingErrorWrapper,
-)
 
 
 F = TypeVar('F', bound=Callable[..., Any])
-
-_DEFAULT_CTX = RenderingContext()
-_ERROR_WRAPPER = StreamingErrorWrapper()
 
 
 def streaming_input_type_check(data: Iterable[Union[str, bytes]]) -> None:
@@ -38,19 +24,25 @@ def streaming_line_input_type_check(line: str) -> None:
 
 
 def stream_success(output_line: JSONDictType, ignore_exceptions: bool) -> JSONDictType:
-    """Add `_jc_meta.success` to output line if `ignore_exceptions=True`.
+    """Add `_jc_meta` object to output line if `ignore_exceptions=True`"""
+    if ignore_exceptions:
+        output_line.update({'_jc_meta': {'success': True}})
 
-    Thin adapter: delegates object construction entirely to StreamingMetaInjector.
-    """
-    return cast(JSONDictType, StreamingMetaInjector(ignore_exceptions).inject(output_line, _DEFAULT_CTX))
+    return output_line
 
 
 def stream_error(e: BaseException, line: str) -> JSONDictType:
-    """Return an error `_jc_meta` object.
-
-    Thin adapter: delegates object construction entirely to StreamingErrorWrapper.
     """
-    return _ERROR_WRAPPER.wrap(e, line, _DEFAULT_CTX)
+    Return an error `_jc_meta` field.
+    """
+    return {
+        '_jc_meta':
+            {
+                'success': False,
+                'error': f'{e.__class__.__name__}: {e}',
+                'line': line.strip()
+            }
+    }
 
 
 def add_jc_meta(func: F) -> F:
@@ -58,9 +50,6 @@ def add_jc_meta(func: F) -> F:
     Decorator for streaming parsers to add `stream_success` and
     `stream_error` objects. This simplifies the `yield` lines in the
     streaming parsers.
-
-    Creates injector/wrapper once per parse call, reuses them for all
-    yielded items — no per-yield object allocation.
 
     With the decorator on parse():
 
@@ -99,13 +88,18 @@ def add_jc_meta(func: F) -> F:
     @wraps(func)
     def wrapper(*args, **kwargs):
         ignore_exceptions = kwargs.get('ignore_exceptions', False)
-        injector = StreamingMetaInjector(ignore_exceptions)
         gen = func(*args, **kwargs)
         for value in gen:
+            # if the yielded value is a dict, then we know it was a
+            # successfully parsed line
             if isinstance(value, dict):
-                yield cast(JSONDictType, injector.inject(value, _DEFAULT_CTX))
+                yield stream_success(value, ignore_exceptions)
+
+            # otherwise it will be a tuple and we know it was an error
             else:
-                yield _ERROR_WRAPPER.wrap(value[0], value[1], _DEFAULT_CTX)
+                exception_obj = value[0]
+                line = value[1]
+                yield stream_error(exception_obj, line)
 
     return cast(F, wrapper)
 

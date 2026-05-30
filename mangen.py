@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
 # Generate man page from jc metadata using jinja2 templates
 from datetime import date
-import jc.cli
-from jinja2 import Environment, FileSystemLoader
+from _docgen import get_jinja_env, get_jc_info, write_output, MAN_DIR
 
-file_loader = FileSystemLoader('templates')
-env = Environment(loader=file_loader)
+env = get_jinja_env()
 template = env.get_template('manpage_template')
-output = template.render(today=date.today(),
-                         jc=jc.cli.JcCli.about_jc())
+output = template.render(today=date.today(), jc=get_jc_info())
 
-with open('man/jc.1', 'w') as f:
-    f.write(output)
+write_output(MAN_DIR / 'jc.1', output)

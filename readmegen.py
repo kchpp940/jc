@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 # Generate README.md from jc metadata using jinja2 templates
-import jc.cli
-import jc.lib
-from jinja2 import Environment, FileSystemLoader
+from _docgen import get_jinja_env, get_parsers, get_jc_info, write_output, PROJECT_ROOT
 
-file_loader = FileSystemLoader('templates')
-env = Environment(loader=file_loader)
+env = get_jinja_env()
 template = env.get_template('readme_template')
-output = template.render(parsers=jc.lib.all_parser_info(),
-                         info=jc.cli.JcCli.about_jc())
+output = template.render(parsers=get_parsers(), info=get_jc_info())
 
-with open('README.md', 'w') as f:
-    f.write(output)
+write_output(PROJECT_ROOT / 'README.md', output)

@@ -7,6 +7,7 @@ import sys
 import importlib
 from inspect import isfunction, signature, cleandoc
 import yapf  # type: ignore
+from _docgen import is_standard_parser_module, is_parser_module, is_universal_module
 
 ignore_lib_functions = [
     'cast',
@@ -33,7 +34,7 @@ for attribute in dir(module):
     if isfunction(getattr(module, attribute)) \
         and not getattr(module, attribute).__name__.startswith('_'):
 
-        if 'jc.parsers.' in mod_path and not 'universal' in mod_path:
+        if is_standard_parser_module(mod_path):
             if attribute == 'parse':
                 functions.append(attribute)
 
@@ -62,7 +63,7 @@ for api in functions:
 
 ######## FOOTER ########
 footer = ''
-if 'jc.parsers.' in mod_path and not 'universal' in mod_path:
+if is_standard_parser_module(mod_path):
     footer = '### Parser Information\n'
     comp = ', '.join(module.info.compatible)
     ver = module.info.version
@@ -76,7 +77,7 @@ if 'jc.parsers.' in mod_path and not 'universal' in mod_path:
     footer = footer + f'Version {ver} by {author} ({author_email})'
 
 final_doc = ''
-if 'jc.parsers.' in mod_path and not 'universal' in mod_path:
+if is_standard_parser_module(mod_path):
     final_doc = header + '\n' + summary + '\n' + api_docs + footer
 elif mod_path == 'jc':
     final_doc = header + '\n' + summary

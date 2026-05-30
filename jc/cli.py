@@ -2,6 +2,7 @@
 JC cli module
 """
 
+import io
 import sys
 import os
 import re
@@ -25,7 +26,18 @@ from .cli_data import (
 from .shell_completions import bash_completion, zsh_completion
 from . import tracebackplus
 from .exceptions import LibraryNotInstalled, ParseError
-from .renderers import RenderingContext, create_renderer, OutputRenderer
+
+PYGMENTS_INSTALLED: bool = False
+try:
+    import pygments
+    from pygments import highlight
+    from pygments.style import Style
+    from pygments.token import (Name, Number, String, Keyword)
+    from pygments.lexers.data import JsonLexer, YamlLexer
+    from pygments.formatters import Terminal256Formatter
+    PYGMENTS_INSTALLED = True
+except Exception:
+    pass
 
 JC_CLEAN_EXIT: int = 0
 JC_ERROR_EXIT: int = 100
@@ -43,14 +55,6 @@ class info():
     copyright: str = '© 2019-2025 Kelly Brazil'
     license: str = 'MIT License'
 
-
-PYGMENTS_INSTALLED: bool = False
-try:
-    import pygments
-    from pygments.token import Name, Number, String, Keyword
-    PYGMENTS_INSTALLED = True
-except Exception:
-    pass
 
 # We only support 2.3.0+, pygments changed color names in 2.4.0.
 # startswith is sufficient and avoids potential exceptions from split and int.
@@ -72,8 +76,7 @@ class JcCli():
                  'version_info', 'yaml_output', 'bash_comp', 'zsh_comp',
                  'magic_found_parser', 'magic_options', 'magic_run_command',
                  'magic_run_command_str', 'magic_stdout', 'magic_stderr',
-                 'magic_returncode', 'slice_str', 'slice_start', 'slice_end',
-                 'renderer')
+                 'magic_returncode', 'slice_str', 'slice_start', 'slice_end')
 
     def __init__(self) -> None:
         self.data_in: Optional[Union[str, bytes, TextIO, Iterable[str]]] = None
@@ -125,28 +128,6 @@ class JcCli():
         self.magic_stdout: Optional[Union[str, Iterable[str]]] = None
         self.magic_stderr: Optional[str] = None
         self.magic_returncode: int = 0
-
-        # renderer
-        self.renderer: Optional[OutputRenderer] = None
-
-    def _build_rendering_context(self) -> RenderingContext:
-        """Build a RenderingContext from the current CLI state."""
-        return RenderingContext(
-            parser_name=self.parser_name,
-            run_timestamp=self.run_timestamp,
-            slice_start=self.slice_start,
-            slice_end=self.slice_end,
-            magic_command=self.magic_run_command,
-            magic_command_exit=self.magic_returncode,
-            input_list=self.inputlist,
-            pretty=self.pretty,
-            ascii_only=self.ascii_only,
-            mono=self.mono,
-            unbuffer=self.unbuffer,
-            custom_colors=self.custom_colors,
-            json_indent=self.json_indent,
-            json_separators=self.json_separators,
-        )
 
     def set_custom_colors(self) -> None:
         """
@@ -367,6 +348,95 @@ class JcCli():
         '''
         return textwrap.dedent(versiontext_string)
 
+    def yaml_out(self) -> str:
+        """
+        Return a YAML formatted string. String may include color codes. If the
+        YAML library is not installed, output will fall back to JSON with a
+        warning message to STDERR"""
+        # make ruamel.yaml import optional
+        try:
+            from ruamel.yaml import YAML, representer
+            YAML_INSTALLED = True
+        except Exception:
+            YAML_INSTALLED = False
+
+        if YAML_INSTALLED:
+            y_string_buf = io.BytesIO()
+
+            # monkey patch to disable plugins since we don't use them and in
+            # ruamel.yaml versions prior to 0.17.0 the use of __file__ in the
+            # plugin code is incompatible with the pyoxidizer packager
+            YAML.official_plug_ins = lambda a: []  # type: ignore
+
+            # monkey patch to disable aliases
+            representer.RoundTripRepresenter.ignore_aliases = lambda x, y: True  # type: ignore
+
+            yaml = YAML()
+            yaml.default_flow_style = False
+            yaml.explicit_start = True  # type: ignore
+            yaml.allow_unicode = not self.ascii_only
+            yaml.encoding = 'utf-8'
+            yaml.dump(self.data_out, y_string_buf)
+            y_string = y_string_buf.getvalue().decode('utf-8')[:-1]
+
+            if not self.mono:
+                class JcStyle(Style):
+                    styles: CustomColorType = self.custom_colors
+
+                return str(highlight(y_string, YamlLexer(), Terminal256Formatter(style=JcStyle))[0:-1])
+
+            return y_string
+
+        utils.warning_message(['YAML Library not installed. Reverting to JSON output.'])
+        return self.json_out()
+
+    def json_out(self) -> str:
+        """
+        Return a JSON formatted string. String may include color codes or be
+        pretty printed.
+        """
+        import json
+
+        if self.pretty:
+            self.json_indent = 2
+            self.json_separators = None
+
+        # Convert any non-serializable object to a string
+        def string_serializer(data):
+            return str(data)
+
+        j_string = json.dumps(
+            self.data_out,
+            indent=self.json_indent,
+            separators=self.json_separators,
+            ensure_ascii=self.ascii_only,
+            default=string_serializer
+        )
+
+        if not self.mono and PYGMENTS_INSTALLED:
+            class JcStyle(Style):
+                styles: CustomColorType = self.custom_colors
+
+            return str(highlight(j_string, JsonLexer(), Terminal256Formatter(style=JcStyle))[0:-1])
+
+        return j_string
+
+    def safe_print_out(self) -> None:
+        """Safely prints JSON or YAML output in both UTF-8 and ASCII systems"""
+        if self.yaml_output:
+            try:
+                print(self.yaml_out(), flush=self.unbuffer)
+            except UnicodeEncodeError:
+                self.ascii_only = True
+                print(self.yaml_out(), flush=self.unbuffer)
+
+        else:
+            try:
+                print(self.json_out(), flush=self.unbuffer)
+            except UnicodeEncodeError:
+                self.ascii_only = True
+                print(self.json_out(), flush=self.unbuffer)
+
     def magic_parser(self) -> None:
         """
         Parse command arguments for magic syntax: `jc -p ls -al` and set the
@@ -566,6 +636,53 @@ class JcCli():
             utils.error_message(['Missing piped data. Use "jc -h" for help.'])
             self.exit_error()
 
+    def add_metadata_to_output(self) -> None:
+        """
+        This function mutates self.data_out in place. If the _jc_meta field
+        does not already exist, it will be created with the metadata fields. If
+        the _jc_meta field already exists, the metadata fields will be added to
+        the existing object.
+
+        In the case of an empty list (no data), a dictionary with a _jc_meta
+        object will be added to the list. This way you always get metadata,
+        even if there are no results.
+        """
+        if self.run_timestamp:
+            meta_obj: JSONDictType = {
+                'parser': self.parser_name,
+                'timestamp': self.run_timestamp.timestamp(),
+                'slice_start': self.slice_start,
+                'slice_end': self.slice_end
+            }
+
+            if self.magic_run_command:
+                meta_obj['magic_command'] = self.magic_run_command
+                meta_obj['magic_command_exit'] = self.magic_returncode
+
+            if self.inputlist:
+                meta_obj['input_list'] = self.inputlist
+
+            if isinstance(self.data_out, dict):
+                if '_jc_meta' not in self.data_out:
+                    self.data_out['_jc_meta'] = {}
+
+                self.data_out['_jc_meta'].update(meta_obj)
+
+            elif isinstance(self.data_out, list):
+                if not self.data_out:
+                    self.data_out.append({})
+
+                for item in self.data_out:
+                    if isinstance(item, dict):
+                        if '_jc_meta' not in item:
+                            item['_jc_meta'] = {}
+
+                        item['_jc_meta'].update(meta_obj)
+
+            else:
+                utils.error_message(['Parser returned an unsupported object type.'])
+                self.exit_error()
+
     def slicer(self) -> None:
         """Slice input data lazily, if possible. Updates self.data_in"""
         if self.slice_str:
@@ -582,12 +699,16 @@ class JcCli():
         Slurp input into a list. If input is coming from multiple /proc files
         using magic syntax, then also add a `_file` key to the output.
 
+        If --meta-out is used then further wrap the data in a dict like so:
+            {"result": data}
+
         self.input_list will already exist if the data is coming from the
         /proc magic sytnax. Otherwise this funcion will build it for normal
         slurp items.
 
-        This method updates self.data_out. Metadata injection is handled by
-        the renderer.
+        This will allow --meta-out to add its information in a clean way.
+
+        This method updates self.data_out
         """
         if self.parser_module and isinstance(self.data_in, (str, Iterable)):
             self.data_out = []
@@ -631,12 +752,10 @@ class JcCli():
             if self.meta_out:
                 self.data_out = {"result": self.data_out}
                 self.run_timestamp = datetime.now(timezone.utc)
+                self.add_metadata_to_output()
 
     def create_normal_output(self) -> None:
-        """standard output - updates self.data_out
-
-        Metadata injection is handled by the renderer.
-        """
+        """standard output - updates self.data_out"""
         if self.parser_module:
             self.data_out = self.parser_module.parse(
                 self.data_in,
@@ -646,13 +765,14 @@ class JcCli():
 
             if self.meta_out:
                 self.run_timestamp = datetime.now(timezone.utc)
+                self.add_metadata_to_output()
 
     def streaming_parse_and_print(self) -> None:
         """only supports UTF-8 string data for now"""
         self.data_in = sys.stdin
         self.slicer()
 
-        if self.parser_module and self.renderer:
+        if self.parser_module:
             result = self.parser_module.parse(
                 self.data_in,
                 raw=self.raw,
@@ -660,14 +780,13 @@ class JcCli():
                 ignore_exceptions=self.ignore_exceptions
             )
 
-            ctx = self._build_rendering_context()
             for line in result:
                 self.data_out = line
                 if self.meta_out:
                     self.run_timestamp = datetime.now(timezone.utc)
-                    ctx.run_timestamp = self.run_timestamp
+                    self.add_metadata_to_output()
 
-                self.renderer.print_streaming(line, ctx)
+                self.safe_print_out()
 
     def standard_parse_and_print(self) -> None:
         """supports binary and UTF-8 string data"""
@@ -682,14 +801,13 @@ class JcCli():
 
         self.slicer()
 
-        if self.parser_module and self.renderer:
+        if self.parser_module:
             if self.slurp:
                 self.create_slurp_output()
             else:
                 self.create_normal_output()
 
-            ctx = self._build_rendering_context()
-            self.renderer.print(self.data_out, ctx)
+            self.safe_print_out()
 
     def exit_clean(self) -> None:
         exit_code: int = self.magic_returncode + JC_CLEAN_EXIT
@@ -753,18 +871,9 @@ class JcCli():
         if self.verbose_debug:
             tracebackplus.enable(context=11)  # type: ignore
 
-        # CLI selects the rendering strategy - actual rendering is delegated
-        self.renderer = create_renderer(
-            yaml_output=self.yaml_output,
-            meta_out=self.meta_out,
-            ignore_exceptions=self.ignore_exceptions,
-            streaming=False,
-        )
-
         if self.about:
             self.data_out = self.about_jc()
-            ctx = self._build_rendering_context()
-            self.renderer.print(self.data_out, ctx)
+            self.safe_print_out()
             self.exit_clean()
 
         if self.help_me:
@@ -800,13 +909,6 @@ class JcCli():
 
             try:
                 if _parser_is_streaming(self.parser_module):
-                    # Recreate renderer for streaming mode (uses NDJSON formatter)
-                    self.renderer = create_renderer(
-                        yaml_output=self.yaml_output,
-                        meta_out=self.meta_out,
-                        ignore_exceptions=self.ignore_exceptions,
-                        streaming=True,
-                    )
                     self.streaming_parse_and_print()
                     self.exit_clean()
 
