@@ -3,9 +3,20 @@ from typing import List, Dict
 
 long_options_map: Dict[str, List[str]] = {
     '--about': ['a', 'about jc'],
+    '--filter-category': ['', 'filter parsers by category tags (comma-separated)'],
+    '--filter-platform': ['', 'filter parsers by compatible platform (comma-separated)'],
+    '--filter-streaming': ['', 'filter for streaming parsers only'],
+    '--filter-no-streaming': ['', 'filter for non-streaming parsers only'],
+    '--filter-slurpable': ['', 'filter for slurpable parsers only'],
+    '--filter-no-slurpable': ['', 'filter for non-slurpable parsers only'],
+    '--filter-plugin': ['', 'filter for local plugin parsers only'],
+    '--filter-no-plugin': ['', 'filter for built-in parsers only'],
+    '--filter-name': ['', 'filter parsers by name substring'],
+    '--parser-format': ['', 'output format for parser listing: text (default), json, yaml'],
     '--force-color': ['C', 'force color output (overrides -m)'],
     '--debug': ['d', 'debug (double for verbose debug)'],
     '--help': ['h', 'help (--help --parser_name for parser documentation)'],
+    '--list-parsers': ['', 'list available parsers (supports filters and --parser-format)'],
     '--monochrome': ['m', 'monochrome output'],
     '--meta-out': ['M', 'add metadata to output including timestamp, etc.'],
     '--pretty': ['p', 'pretty print output'],
@@ -75,6 +86,14 @@ Usage:
         jc [SLICE] [OPTIONS] COMMAND
 
         jc [SLICE] [OPTIONS] /proc/<path-to-procfile>
+
+    Parser discovery:
+
+        jc parsers [FILTERS] [--parser-format FORMAT]
+        jc --list-parsers [FILTERS] [--parser-format FORMAT]
+
+        FORMAT: text (default), json, yaml
+        Note: --format is deprecated, use --parser-format instead.
 
 Parsers:
 '''

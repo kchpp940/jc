@@ -10,8 +10,7 @@ description: |
     How to use `jc` with plugins:
     1. Put your plugin in the "$HOME/.local/share/jc" directory.
     2. Run for `snap connect jc:dot-jc-plugins snapd` connect the directory.
-# base, confinement, and license are sourced from jc/lib.py __release__['snap']
-# when updating, change jc/lib.py first then sync here
+# version: git
 base: core22
 confinement: strict
 license: MIT
@@ -38,15 +37,9 @@ parts:
     # source: https://github.com/kellyjonbrazil/jc
     override-pull: |
       craftctl default
-      _rel() { python3 -c "import ast; r=None
-      t=ast.parse(open('jc/lib.py').read())
-      for n in ast.iter_child_nodes(t):
-        if isinstance(n,ast.Assign) and n.targets[0].id=='__release__': r=ast.literal_eval(n.value)
-      k='$1'.split('.'); v=r
-      for p in k: v=v[p]
-      print(v)"; }
-      craftctl set version=$(_rel version)
-      craftctl set grade=$(_rel snap.grade)
+      JC_VERSION=$(grep version= setup.py | cut -d '=' -f 2 | sed "s/,$// ; s/'//g")
+      craftctl set version=$JC_VERSION
+      craftctl set grade="stable"
 
 plugs:
   dot-jc-plugins:

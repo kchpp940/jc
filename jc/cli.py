@@ -13,9 +13,10 @@ import subprocess
 from typing import List, Dict, Iterable, Union, Optional, TextIO
 from types import ModuleType
 from .lib import (
-    __release__, parser_info, all_parser_info, parsers, get_parser, _parser_is_streaming,
+    __version__, parser_info, all_parser_info, parsers, get_parser, _parser_is_streaming,
     parser_mod_list, standard_parser_mod_list, plugin_parser_mod_list, streaming_parser_mod_list,
-    slurpable_parser_mod_list, _parser_is_slurpable
+    slurpable_parser_mod_list, _parser_is_slurpable, filter_parsers, ParserFilter,
+    ParserList
 )
 from .jc_types import JSONDictType, CustomColorType, ParserInfoType
 from . import utils
@@ -47,13 +48,13 @@ SLICER_RE = re.compile(SLICER_PATTERN)
 
 
 class info():
-    version: str = __release__['version']
-    description: str = __release__['description']
-    author: str = __release__['author']
-    author_email: str = __release__['author_email']
-    website: str = __release__['website']
-    copyright: str = __release__['copyright']
-    license: str = __release__['license']
+    version: str = __version__
+    description: str = 'JSON Convert'
+    author: str = 'Kelly Brazil'
+    author_email: str = 'kellyjonbrazil@gmail.com'
+    website: str = 'https://github.com/kellyjonbrazil/jc'
+    copyright: str = '© 2019-2025 Kelly Brazil'
+    license: str = 'MIT License'
 
 
 # We only support 2.3.0+, pygments changed color names in 2.4.0.
@@ -76,7 +77,10 @@ class JcCli():
                  'version_info', 'yaml_output', 'bash_comp', 'zsh_comp',
                  'magic_found_parser', 'magic_options', 'magic_run_command',
                  'magic_run_command_str', 'magic_stdout', 'magic_stderr',
-                 'magic_returncode', 'slice_str', 'slice_start', 'slice_end')
+                 'magic_returncode', 'slice_str', 'slice_start', 'slice_end',
+                 'filter_category', 'filter_platform', 'filter_streaming',
+                 'filter_slurpable', 'filter_plugin', 'filter_name',
+                 'list_parsers', 'list_format', 'parser_list_obj')
 
     def __init__(self) -> None:
         self.data_in: Optional[Union[str, bytes, TextIO, Iterable[str]]] = None
@@ -128,6 +132,19 @@ class JcCli():
         self.magic_stdout: Optional[Union[str, Iterable[str]]] = None
         self.magic_stderr: Optional[str] = None
         self.magic_returncode: int = 0
+
+        # parser filter attributes
+        self.filter_category: Optional[List[str]] = None
+        self.filter_platform: Optional[List[str]] = None
+        self.filter_streaming: Optional[bool] = None
+        self.filter_slurpable: Optional[bool] = None
+        self.filter_plugin: Optional[bool] = None
+        self.filter_name: Optional[str] = None
+
+        # parser list command attributes
+        self.list_parsers: bool = False
+        self.list_format: str = 'text'
+        self.parser_list_obj: Optional[ParserList] = None
 
     def set_custom_colors(self) -> None:
         """
@@ -200,36 +217,53 @@ class JcCli():
         p = parser_arg.lstrip('-')
         return p.replace('_', '-')
 
+    def get_parser_list(self) -> ParserList:
+        """
+        Return the unified ParserList object based on current filter settings.
+
+        This is the single source of truth for all parser listings in the CLI.
+        The result is cached so multiple consumers get the same data.
+        """
+        if self.parser_list_obj is None:
+            self.parser_list_obj = ParserList.discover(
+                category=self.filter_category,
+                platform=self.filter_platform,
+                streaming=self.filter_streaming,
+                slurpable=self.filter_slurpable,
+                plugin=self.filter_plugin,
+                name=self.filter_name,
+                show_hidden=self.show_hidden,
+                show_deprecated=False
+            )
+        return self.parser_list_obj
+
+    def get_filtered_parsers(self) -> List[ParserInfoType]:
+        """Return filtered parser info list based on current filter settings."""
+        return self.get_parser_list().parsers
+
     def parsers_text(self) -> str:
         """Return the argument and description information from each parser"""
-        ptext: str = ''
-        padding_char: str = ' '
-        for p in all_parser_info(show_hidden=self.show_hidden, show_deprecated=False):
-            parser_arg: str = p.get('argument', 'UNKNOWN')
-            padding: int = self.pad - len(parser_arg)
-            parser_desc: str = p.get('description', 'No description available.')
-            indent_text: str = padding_char * self.indent
-            padding_text: str = padding_char * padding
-            ptext += indent_text + parser_arg + padding_text + parser_desc + '\n'
-
-        return ptext
+        return self.get_parser_list().to_text(indent=self.indent, pad=self.pad) + '\n'
 
     def parser_categories_text(self) -> str:
         """Return lists of parsers by category"""
         category_text: str = ''
         padding_char: str = ' '
-        all_parsers = all_parser_info(show_hidden=True, show_deprecated=False)
-        generic = [{'arg': x['argument'], 'desc': x['description']} for x in all_parsers if 'generic' in x.get('tags', [])]
-        standard = [{'arg': x['argument'], 'desc': x['description']} for x in all_parsers if 'standard' in x.get('tags', [])]
-        command = [{'arg': x['argument'], 'desc': x['description']} for x in all_parsers if 'command' in x.get('tags', [])]
-        slurpable = [{'arg': x['argument'], 'desc': x['description']} for x in all_parsers if 'slurpable' in x.get('tags', [])]
+        plist = self.get_parser_list()
+        by_cat = plist.by_category()
+
+        generic = [{'arg': x['argument'], 'desc': x['description']} for x in by_cat.get('generic', [])]
+        standard = [{'arg': x['argument'], 'desc': x['description']} for x in by_cat.get('standard', [])]
+        command = [{'arg': x['argument'], 'desc': x['description']} for x in by_cat.get('command', [])]
+        slurpable = [{'arg': x['argument'], 'desc': x['description']} for x in by_cat.get('slurpable', [])]
         file_str_bin = [
-            {'arg': x['argument'], 'desc': x['description']} for x in all_parsers
-                if 'file' in x.get('tags', []) or
-                'string' in x.get('tags', []) or
-                'binary' in x.get('tags', [])
+            {'arg': x['argument'], 'desc': x['description']} for x in
+                list(by_cat.get('file', [])) +
+                list(by_cat.get('string', [])) +
+                list(by_cat.get('binary', []))
         ]
-        streaming = [{'arg': x['argument'], 'desc': x['description']} for x in all_parsers if x.get('streaming')]
+        streaming = [{'arg': x['argument'], 'desc': x['description']} for x in plist if x.get('streaming')]
+
         categories: Dict = {
             'Generic Parsers:': generic,
             'Standard Spec Parsers:': standard,
@@ -250,6 +284,30 @@ class JcCli():
             category_text += '\n'
 
         return category_text[:-1]
+
+    def list_parsers_output(self) -> str:
+        """
+        Output parser list in the requested format (text/json/yaml).
+
+        This is the dedicated parser discovery entrypoint for scriptable
+        consumption, separate from help text rendering.
+        """
+        plist = self.get_parser_list()
+
+        if self.list_format == 'json':
+            return plist.to_json(pretty=self.pretty)
+        elif self.list_format == 'yaml':
+            return plist.to_yaml(pretty=self.pretty)
+        else:
+            summary = plist.summary()
+            filter_str = ', '.join(f'{k}={v}' for k, v in summary['filter'].items()) or 'none'
+            output = [
+                f'jc parser list ({summary["total"]} total)',
+                f'Filters: {filter_str}',
+                '',
+                plist.to_text(indent=2, pad=22)
+            ]
+            return '\n'.join(output)
 
     def options_text(self) -> str:
         """Return the argument and description information from each option"""
@@ -288,11 +346,31 @@ class JcCli():
             'parsers': all_parser_info(show_hidden=True, show_deprecated=True)
         }
 
+    def filter_summary(self) -> str:
+        """Return a summary of active parser filters."""
+        filters: List[str] = []
+        if self.filter_category:
+            filters.append(f"category={','.join(self.filter_category)}")
+        if self.filter_platform:
+            filters.append(f"platform={','.join(self.filter_platform)}")
+        if self.filter_streaming is not None:
+            filters.append(f"streaming={self.filter_streaming}")
+        if self.filter_slurpable is not None:
+            filters.append(f"slurpable={self.filter_slurpable}")
+        if self.filter_plugin is not None:
+            filters.append(f"plugin={self.filter_plugin}")
+        if self.filter_name:
+            filters.append(f"name={self.filter_name}")
+        if filters:
+            return f'Active filters: [{", ".join(filters)}]\n\n'
+        return ''
+
     def helptext(self) -> str:
         """Return the help text with the list of parsers"""
         parsers_string: str = self.parsers_text()
         options_string: str = self.options_text()
-        helptext_string: str = f'{helptext_preamble_string}{parsers_string}\nOptions:\n{options_string}\n{slicetext_string}\n{helptext_end_string}'
+        filter_string: str = self.filter_summary()
+        helptext_string: str = f'{helptext_preamble_string}{filter_string}{parsers_string}\nOptions:\n{options_string}\n{slicetext_string}\n{helptext_end_string}'
         return helptext_string
 
     def help_doc(self) -> None:
@@ -824,18 +902,94 @@ class JcCli():
         if sys.platform.startswith('win32'):
             os.system('')
 
+        # check for 'jc parsers' subcommand before magic parser
+        if len(sys.argv) > 1 and sys.argv[1] == 'parsers':
+            self.list_parsers = True
+            # rewrite args to skip the 'parsers' subcommand so filters still work
+            self.args = [sys.argv[0]] + sys.argv[2:]
+        else:
+            self.args = sys.argv
+
         # parse magic syntax first: e.g. jc -p ls -al
-        self.args = sys.argv
-        self.magic_parser()
+        # skip magic parser when listing parsers to avoid interference
+        if not self.list_parsers:
+            self.magic_parser()
 
         # add magic options to regular options
         self.options.extend(self.magic_options)
 
         # find options if magic_parser did not find a command
         if not self.magic_found_parser:
-            for opt in self.args:
+            args_iter = iter(self.args)
+            # Track deprecated --format encountered before --list-parsers
+            found_deprecated_format = None
+            for opt in args_iter:
+                # Handle deprecated --format for parser listing
+                if opt == '--format':
+                    format_val = next(args_iter, 'text')
+                    # If already in list-parsers mode (jc parsers subcommand), error immediately
+                    if self.list_parsers:
+                        utils.error_message([
+                            "The '--format' option is deprecated for parser listing.",
+                            "Use '--parser-format' instead. Example:",
+                            "  jc parsers --parser-format json",
+                        ])
+                        self.exit_error()
+                    # Otherwise defer check until we see --list-parsers
+                    found_deprecated_format = format_val
+                    continue
+
                 if SLICER_RE.match(opt):
                     self.slice_str = opt
+
+                if opt == '--filter-category':
+                    val = next(args_iter, '')
+                    self.filter_category = [c.strip() for c in val.split(',') if c.strip()]
+                    continue
+                if opt == '--filter-platform':
+                    val = next(args_iter, '')
+                    self.filter_platform = [p.strip() for p in val.split(',') if p.strip()]
+                    continue
+                if opt == '--filter-streaming':
+                    self.filter_streaming = True
+                    continue
+                if opt == '--filter-no-streaming':
+                    self.filter_streaming = False
+                    continue
+                if opt == '--filter-slurpable':
+                    self.filter_slurpable = True
+                    continue
+                if opt == '--filter-no-slurpable':
+                    self.filter_slurpable = False
+                    continue
+                if opt == '--filter-plugin':
+                    self.filter_plugin = True
+                    continue
+                if opt == '--filter-no-plugin':
+                    self.filter_plugin = False
+                    continue
+                if opt == '--filter-name':
+                    self.filter_name = next(args_iter, '')
+                    continue
+                if opt == '--parser-format':
+                    self.list_format = next(args_iter, 'text').lower()
+                    if self.list_format not in ('text', 'json', 'yaml'):
+                        utils.error_message([
+                            f'Invalid format: {self.list_format}. Use text, json, or yaml.'
+                        ])
+                        self.exit_error()
+                    continue
+                if opt == '--list-parsers':
+                    self.list_parsers = True
+                    # Check if deprecated --format was encountered earlier
+                    if found_deprecated_format is not None:
+                        utils.error_message([
+                            "The '--format' option is deprecated for parser listing.",
+                            "Use '--parser-format' instead. Example:",
+                            "  jc --list-parsers --parser-format json",
+                        ])
+                        self.exit_error()
+                    continue
 
                 if opt in long_options_map:
                     self.options.extend(long_options_map[opt][0])
@@ -874,6 +1028,10 @@ class JcCli():
         if self.about:
             self.data_out = self.about_jc()
             self.safe_print_out()
+            self.exit_clean()
+
+        if self.list_parsers:
+            utils._safe_print(self.list_parsers_output())
             self.exit_clean()
 
         if self.help_me:

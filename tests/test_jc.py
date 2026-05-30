@@ -1,20 +1,10 @@
 import unittest
 import os
-import ast
-from ruamel.yaml import YAML
+import re
 from typing import Generator
 import jc
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-
-def _get_release_from_lib():
-    with open(os.path.join(THIS_DIR, os.pardir, 'jc/lib.py'), 'r', encoding='utf-8') as f:
-        tree = ast.parse(f.read())
-    for node in ast.iter_child_nodes(tree):
-        if isinstance(node, ast.Assign) and len(node.targets) == 1:
-            if node.targets[0].id == '__release__':
-                return ast.literal_eval(node.value)
-    raise RuntimeError('Could not find __release__ in jc/lib.py')
 
 class MyTests(unittest.TestCase):
     def test_jc_parse_csv(self):
@@ -54,72 +44,26 @@ class MyTests(unittest.TestCase):
         self.assertIsInstance(jc.slurpable_parser_mod_list(), list)
 
     def test_version_info(self):
-        """Test that __version__ and __release__ are consistent and setup.py reads from lib.py."""
-        release = _get_release_from_lib()
-
-        self.assertEqual(jc.__version__, release['version'],
-                         '__version__ must equal __release__[\"version\"]')
-        self.assertEqual(jc.__release__['version'], release['version'])
+        """Test that the lib and pkg version strings match."""
+        with open(os.path.join(THIS_DIR, os.pardir, 'jc/lib.py'), 'r', encoding='utf-8') as f:
+            lib_file = f.read()
 
         with open(os.path.join(THIS_DIR, os.pardir, 'setup.py'), 'r', encoding='utf-8') as f:
-            setup_file = f.read()
+            pkg_file = f.read()
 
-        self.assertIn('_get_release()', setup_file,
-                       'setup.py should use _get_release() from jc/lib.py')
-        self.assertIn("open('jc/lib.py'", setup_file)
+        lib_pattern = re.compile(r'''__version__ = \'(?P<ver>\d+\.\d+\.\d+)\'''')
+        pkg_pattern = re.compile(r'''    version=\'(?P<ver>\d+\.\d+\.\d+)\'''')
 
-    def test_release_metadata_keys(self):
-        """Test that __release__ contains all required release metadata keys."""
-        release = _get_release_from_lib()
-        required_keys = [
-            'version', 'name', 'description', 'author', 'author_email',
-            'website', 'license', 'copyright', 'python_requires',
-            'install_requires', 'snap',
-        ]
-        for key in required_keys:
-            self.assertIn(key, release, f'__release__ missing required key: {key}')
+        lib_match = re.search(lib_pattern, lib_file)
+        pkg_match = re.search(pkg_pattern, pkg_file)
 
-    def test_release_snap_keys(self):
-        """Test that __release__['snap'] contains all required snap metadata keys."""
-        release = _get_release_from_lib()
-        snap_required = ['base', 'confinement', 'grade', 'branch']
-        for key in snap_required:
-            self.assertIn(key, release['snap'],
-                          f'__release__[\"snap\"] missing required key: {key}')
+        if lib_match:
+            lib_version = lib_match.groupdict()['ver']
 
-    def test_setup_deps_match_release(self):
-        """Test that setup.py install_requires is sourced from __release__ via _get_release()."""
-        with open(os.path.join(THIS_DIR, os.pardir, 'setup.py'), 'r', encoding='utf-8') as f:
-            setup_file = f.read()
+        if pkg_match:
+            pkg_version = pkg_match.groupdict()['ver']
 
-        self.assertIn("release['install_requires']", setup_file,
-                       'setup.py should pass release[\"install_requires\"] to setuptools')
-        self.assertNotIn('ruamel.yaml', setup_file,
-                         'setup.py should not hardcode dependency names; read from __release__ instead')
-
-    def test_snapcraft_reads_release(self):
-        """Test that snapcraft.yaml override-pull reads from jc/lib.py __release__."""
-        with open(os.path.join(THIS_DIR, os.pardir, 'snap/snapcraft.yaml'), 'r', encoding='utf-8') as f:
-            snap_file = f.read()
-
-        self.assertIn('jc/lib.py', snap_file,
-                       'snapcraft.yaml should reference jc/lib.py')
-        self.assertIn('__release__', snap_file,
-                       'snapcraft.yaml should reference __release__')
-
-    def test_snapcraft_fields_match_release(self):
-        """Test that snapcraft.yaml hardcoded fields match __release__['snap']."""
-        release = _get_release_from_lib()
-        yaml = YAML(typ='safe')
-        with open(os.path.join(THIS_DIR, os.pardir, 'snap/snapcraft.yaml'), 'r', encoding='utf-8') as f:
-            snap = yaml.load(f)
-
-        self.assertEqual(snap['base'], release['snap']['base'])
-        self.assertEqual(snap['confinement'], release['snap']['confinement'])
-        self.assertEqual(snap['license'], release['license'])
-        self.assertEqual(snap['website'], release['website'])
-        self.assertEqual(snap['source-code'], release['website'])
-        self.assertEqual(snap['contact'], f"{release['author']} <{release['author_email']}>")
+        self.assertEqual(lib_version, pkg_version)
 
 if __name__ == '__main__':
     unittest.main()

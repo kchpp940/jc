@@ -2,38 +2,254 @@
 import sys
 import os
 import re
+import json
 import importlib
-from typing import List, Iterable, Optional, Union, Iterator
+from typing import List, Iterable, Optional, Union, Iterator, Dict
 from types import ModuleType
+from dataclasses import dataclass, field
 from .jc_types import ParserInfoType, JSONDictType
 from jc import appdirs
 from jc import utils
 
 
-__release__ = {
-    'version': '1.25.6',
-    'name': 'jc',
-    'description': 'Converts the output of popular command-line tools and file-types to JSON.',
-    'author': 'Kelly Brazil',
-    'author_email': 'kellyjonbrazil@gmail.com',
-    'website': 'https://github.com/kellyjonbrazil/jc',
-    'license': 'MIT',
-    'copyright': '© 2019-2025 Kelly Brazil',
-    'python_requires': '>=3.6',
-    'install_requires': [
-        'ruamel.yaml>=0.15.0',
-        'xmltodict>=0.12.0',
-        'Pygments>=2.3.0',
-    ],
-    'snap': {
-        'base': 'core22',
-        'confinement': 'strict',
-        'grade': 'stable',
-        'branch': 'snap-support',
-    },
-}
+@dataclass
+class ParserFilter:
+    """
+    Filter criteria for parser discovery.
 
-__version__ = __release__['version']
+    All filter criteria are ANDed together. For list fields (category,
+    platform), a parser matches if any of its values intersects with the
+    filter values.
+    """
+    category: Optional[List[str]] = field(default=None)
+    platform: Optional[List[str]] = field(default=None)
+    streaming: Optional[bool] = field(default=None)
+    slurpable: Optional[bool] = field(default=None)
+    plugin: Optional[bool] = field(default=None)
+    name: Optional[str] = field(default=None)
+
+    def matches(self, parser_info: ParserInfoType) -> bool:
+        """Check if a parser matches this filter."""
+        if self.name is not None:
+            if self.name not in parser_info.get('name', '') and \
+               self.name not in parser_info.get('argument', ''):
+                return False
+
+        if self.category is not None:
+            tags = parser_info.get('tags', [])
+            if not any(cat in tags for cat in self.category):
+                return False
+
+        if self.platform is not None:
+            compatible = parser_info.get('compatible', [])
+            if not any(plat in compatible for plat in self.platform):
+                return False
+
+        if self.streaming is not None:
+            if bool(parser_info.get('streaming', False)) != self.streaming:
+                return False
+
+        if self.slurpable is not None:
+            tags = parser_info.get('tags', [])
+            if ('slurpable' in tags) != self.slurpable:
+                return False
+
+        if self.plugin is not None:
+            if bool(parser_info.get('plugin', False)) != self.plugin:
+                return False
+
+        return True
+
+    def to_dict(self) -> Dict:
+        """Serialize filter criteria to a dictionary."""
+        result: Dict = {}
+        if self.category is not None:
+            result['category'] = self.category
+        if self.platform is not None:
+            result['platform'] = self.platform
+        if self.streaming is not None:
+            result['streaming'] = self.streaming
+        if self.slurpable is not None:
+            result['slurpable'] = self.slurpable
+        if self.plugin is not None:
+            result['plugin'] = self.plugin
+        if self.name is not None:
+            result['name'] = self.name
+        return result
+
+
+@dataclass
+class ParserList:
+    """
+    Unified parser discovery result object.
+
+    This is the single source of truth for parser metadata consumed by
+    CLI help, --list-parsers output, Python API, and shell completions.
+
+    All consumers use the same filtered data from this object, ensuring
+    consistency across all interfaces.
+    """
+    parsers: List[ParserInfoType] = field(default_factory=list)
+    filter: ParserFilter = field(default_factory=ParserFilter)
+    show_hidden: bool = False
+    show_deprecated: bool = False
+
+    def __len__(self) -> int:
+        return len(self.parsers)
+
+    def __iter__(self) -> Iterator[ParserInfoType]:
+        return iter(self.parsers)
+
+    def __getitem__(self, index: int) -> ParserInfoType:
+        return self.parsers[index]
+
+    @classmethod
+    def discover(
+        cls,
+        category: Optional[Union[str, List[str]]] = None,
+        platform: Optional[Union[str, List[str]]] = None,
+        streaming: Optional[bool] = None,
+        slurpable: Optional[bool] = None,
+        plugin: Optional[bool] = None,
+        name: Optional[str] = None,
+        show_hidden: bool = False,
+        show_deprecated: bool = False
+    ) -> 'ParserList':
+        """
+        Discover and filter parsers.
+
+        Factory method that creates a ParserList with all matching parsers.
+        This is the unified entrypoint for all parser discovery.
+
+        Returns:
+            ParserList: A ParserList object containing the filtered results.
+        """
+        if isinstance(category, str):
+            category = [category]
+        if isinstance(platform, str):
+            platform = [platform]
+
+        pfilter = ParserFilter(
+            category=category,
+            platform=platform,
+            streaming=streaming,
+            slurpable=slurpable,
+            plugin=plugin,
+            name=name
+        )
+
+        all_parsers = _get_raw_parser_info_list(
+            show_hidden=show_hidden,
+            show_deprecated=show_deprecated
+        )
+
+        filtered_parsers = [p for p in all_parsers if pfilter.matches(p)]
+
+        return cls(
+            parsers=filtered_parsers,
+            filter=pfilter,
+            show_hidden=show_hidden,
+            show_deprecated=show_deprecated
+        )
+
+    def names(self) -> List[str]:
+        """Return list of parser module names (for Python API)."""
+        return [p['name'] for p in self.parsers]
+
+    def arguments(self) -> List[str]:
+        """Return list of CLI argument names (e.g., '--ls', '--dig')."""
+        return [p['argument'] for p in self.parsers]
+
+    def magic_commands(self) -> List[str]:
+        """Return unique list of magic command names."""
+        commands: List[str] = []
+        for p in self.parsers:
+            commands.extend(p.get('magic_commands', []))
+        return sorted(list(set([c.split()[0] for c in commands])))
+
+    def descriptions(self) -> List[str]:
+        """Return list of 'argument:description' strings (for Zsh completion)."""
+        return [
+            f"'{p['argument']}:{p.get('description', 'No description')}'"
+            for p in self.parsers
+        ]
+
+    def by_category(self) -> Dict[str, List[ParserInfoType]]:
+        """Group parsers by category tags."""
+        categories: Dict[str, List[ParserInfoType]] = {}
+        for p in self.parsers:
+            for tag in p.get('tags', []):
+                if tag not in categories:
+                    categories[tag] = []
+                categories[tag].append(p)
+        return categories
+
+    def summary(self) -> Dict:
+        """Return a summary of filter criteria and counts."""
+        return {
+            'total': len(self.parsers),
+            'show_hidden': self.show_hidden,
+            'show_deprecated': self.show_deprecated,
+            'filter': self.filter.to_dict(),
+            'count_by_category': {k: len(v) for k, v in self.by_category().items()},
+            'streaming_count': sum(1 for p in self.parsers if p.get('streaming')),
+            'slurpable_count': sum(1 for p in self.parsers if 'slurpable' in p.get('tags', [])),
+            'plugin_count': sum(1 for p in self.parsers if p.get('plugin'))
+        }
+
+    def to_text(self, indent: int = 4, pad: int = 22) -> str:
+        """Format as human-readable text for CLI help."""
+        padding_char = ' '
+        lines: List[str] = []
+        for p in self.parsers:
+            parser_arg = p.get('argument', 'UNKNOWN')
+            padding = pad - len(parser_arg)
+            parser_desc = p.get('description', 'No description available.')
+            indent_text = padding_char * indent
+            padding_text = padding_char * padding
+            lines.append(f'{indent_text}{parser_arg}{padding_text}{parser_desc}')
+        return '\n'.join(lines)
+
+    def to_json(self, pretty: bool = False) -> str:
+        """Format as JSON for scriptable consumption."""
+        output: Dict = {
+            'summary': self.summary(),
+            'parsers': self.parsers
+        }
+        if pretty:
+            return json.dumps(output, indent=2, ensure_ascii=False)
+        return json.dumps(output, ensure_ascii=False)
+
+    def to_yaml(self, pretty: bool = True) -> str:
+        """Format as YAML for scriptable consumption."""
+        output: Dict = {
+            'summary': self.summary(),
+            'parsers': self.parsers
+        }
+        try:
+            from ruamel.yaml import YAML
+            import io
+            yaml = YAML()
+            yaml.default_flow_style = not pretty
+            yaml.allow_unicode = True
+            yaml.explicit_start = pretty  # type: ignore
+            yaml.encoding = 'utf-8'
+            buf = io.BytesIO()
+            yaml.dump(output, buf)
+            return buf.getvalue().decode('utf-8')[:-1]
+        except ImportError:
+            utils.warning_message(['YAML Library not installed. Reverting to JSON output.'])
+            return self.to_json(pretty=pretty)
+
+    def to_dict(self) -> Dict:
+        """Return raw dictionary representation."""
+        return {
+            'summary': self.summary(),
+            'parsers': self.parsers
+        }
+
+
+__version__ = '1.25.6'
 
 parsers: List[str] = [
     'acpi',
@@ -532,19 +748,8 @@ def parser_mod_list(
     show_deprecated: bool = False
 ) -> List[str]:
     """Returns a list of all available parser module names."""
-    plist: List[str] = []
-    for p in parsers:
-        parser = get_parser(p)
-
-        if not show_hidden and _parser_is_hidden(parser):
-            continue
-
-        if not show_deprecated and _parser_is_deprecated(parser):
-            continue
-
-        plist.append(_cliname_to_modname(p))
-
-    return plist
+    plist = ParserList.discover(show_hidden=show_hidden, show_deprecated=show_deprecated)
+    return plist.names()
 
 def plugin_parser_mod_list(
     show_hidden: bool = False,
@@ -554,19 +759,8 @@ def plugin_parser_mod_list(
     Returns a list of plugin parser module names. This function is a
     subset of `parser_mod_list()`.
     """
-    plist: List[str] = []
-    for p in local_parsers:
-        parser = get_parser(p)
-
-        if not show_hidden and _parser_is_hidden(parser):
-            continue
-
-        if not show_deprecated and _parser_is_deprecated(parser):
-            continue
-
-        plist.append(_cliname_to_modname(p))
-
-    return plist
+    plist = ParserList.discover(plugin=True, show_hidden=show_hidden, show_deprecated=show_deprecated)
+    return plist.names()
 
 def standard_parser_mod_list(
     show_hidden: bool = False,
@@ -577,21 +771,8 @@ def standard_parser_mod_list(
     subset of `parser_mod_list()` and does not contain any streaming
     parsers.
     """
-    plist: List[str] = []
-    for p in parsers:
-        parser = get_parser(p)
-
-        if not _parser_is_streaming(parser):
-
-            if not show_hidden and _parser_is_hidden(parser):
-                continue
-
-            if not show_deprecated and _parser_is_deprecated(parser):
-                continue
-
-            plist.append(_cliname_to_modname(p))
-
-    return plist
+    plist = ParserList.discover(streaming=False, show_hidden=show_hidden, show_deprecated=show_deprecated)
+    return plist.names()
 
 def streaming_parser_mod_list(
     show_hidden: bool = False,
@@ -601,21 +782,8 @@ def streaming_parser_mod_list(
     Returns a list of streaming parser module names. This function is a
     subset of `parser_mod_list()`.
     """
-    plist: List[str] = []
-    for p in parsers:
-        parser = get_parser(p)
-
-        if _parser_is_streaming(parser):
-
-            if not show_hidden and _parser_is_hidden(parser):
-                continue
-
-            if not show_deprecated and _parser_is_deprecated(parser):
-                continue
-
-            plist.append(_cliname_to_modname(p))
-
-    return plist
+    plist = ParserList.discover(streaming=True, show_hidden=show_hidden, show_deprecated=show_deprecated)
+    return plist.names()
 
 def slurpable_parser_mod_list(
     show_hidden: bool = False,
@@ -625,21 +793,8 @@ def slurpable_parser_mod_list(
     Returns a list of slurpable parser module names. This function is a
     subset of `parser_mod_list()`.
     """
-    plist: List[str] = []
-    for p in parsers:
-        parser = get_parser(p)
-
-        if _parser_is_slurpable(parser):
-
-            if not show_hidden and _parser_is_hidden(parser):
-                continue
-
-            if not show_deprecated and _parser_is_deprecated(parser):
-                continue
-
-            plist.append(_cliname_to_modname(p))
-
-    return plist
+    plist = ParserList.discover(slurpable=True, show_hidden=show_hidden, show_deprecated=show_deprecated)
+    return plist.names()
 
 def parser_info(
     parser_mod_name: Union[str, ModuleType],
@@ -681,23 +836,15 @@ def parser_info(
 
     return info_dict
 
-def all_parser_info(
-    documentation: bool = False,
+
+def _get_raw_parser_info_list(
     show_hidden: bool = False,
     show_deprecated: bool = False
 ) -> List[ParserInfoType]:
     """
-    Returns a list of dictionaries that includes metadata for all parser
-    modules. By default only non-hidden, non-deprecated parsers are
-    returned.
-
-    Parameters:
-
-        documentation:      (boolean)    include parser docstrings if `True`
-        show_hidden:        (boolean)    also show parsers marked as hidden
-                                         in their info metadata.
-        show_deprecated:    (boolean)    also show parsers marked as
-                                         deprecated in their info metadata.
+    Internal function to get raw parser info list without filters.
+    This breaks the recursion cycle between ParserList.discover() and
+    all_parser_info().
     """
     plist: List[str] = []
     for p in parsers:
@@ -711,9 +858,183 @@ def all_parser_info(
 
         plist.append(p)
 
-    p_info_list: List[ParserInfoType] = [parser_info(p, documentation=documentation) for p in plist]
+    return [parser_info(p, documentation=False) for p in plist]
 
-    return p_info_list
+
+def filter_parsers(
+    parsers_list: Optional[List[ParserInfoType]] = None,
+    category: Optional[Union[str, List[str]]] = None,
+    platform: Optional[Union[str, List[str]]] = None,
+    streaming: Optional[bool] = None,
+    slurpable: Optional[bool] = None,
+    plugin: Optional[bool] = None,
+    name: Optional[str] = None,
+    show_hidden: bool = False,
+    show_deprecated: bool = False,
+    return_list: bool = False
+) -> Union[List[ParserInfoType], 'ParserList']:
+    """
+    Filter and return parser metadata based on various criteria.
+
+    This is the unified parser discovery and filtering entrypoint used by
+    CLI, Python API, and shell completion.
+
+    All filter criteria are ANDed together. For list fields (category,
+    platform), a parser matches if any of its values intersects with the
+    filter values.
+
+    Parameters:
+
+        parsers_list:       (list)       Optional pre-fetched list of parser
+                                         info dicts to filter. If not provided,
+                                         all_parser_info() will be called.
+        category:           (str/list)   Filter by category tags (e.g., 'command',
+                                         'standard', 'generic', 'file', 'string',
+                                         'binary', 'slurpable').
+        platform:           (str/list)   Filter by compatible platforms (e.g.,
+                                         'linux', 'darwin', 'win32', 'cygwin',
+                                         'aix', 'freebsd').
+        streaming:          (bool)        Filter by streaming capability.
+        slurpable:          (bool)        Filter by slurp capability.
+        plugin:             (bool)        Filter by local plugin (True) or
+                                         built-in (False).
+        name:               (str)         Filter by parser name substring.
+        show_hidden:        (bool)        Include hidden parsers.
+        show_deprecated:    (bool)        Include deprecated parsers.
+        return_list:        (bool)        If True, return a ParserList object
+                                         instead of a raw list of dicts.
+
+    Returns:
+
+        List[ParserInfoType] | ParserList: List of matching parser metadata
+            dictionaries, or a ParserList object if return_list=True.
+
+    Example:
+
+        >>> import jc
+        >>> # Find all Linux-compatible streaming parsers
+        >>> streaming_linux = jc.filter_parsers(platform='linux', streaming=True)
+        >>> # Find all slurpable command parsers
+        >>> slurpable_cmd = jc.filter_parsers(category=['command'], slurpable=True)
+        >>> # Get a ParserList object for advanced operations
+        >>> plist = jc.filter_parsers(category='command', return_list=True)
+        >>> print(plist.to_json(pretty=True))
+    """
+    if parsers_list is None:
+        plist_obj = ParserList.discover(
+            category=category,
+            platform=platform,
+            streaming=streaming,
+            slurpable=slurpable,
+            plugin=plugin,
+            name=name,
+            show_hidden=show_hidden,
+            show_deprecated=show_deprecated
+        )
+        if return_list:
+            return plist_obj
+        return plist_obj.parsers
+
+    if isinstance(category, str):
+        category = [category]
+    if isinstance(platform, str):
+        platform = [platform]
+
+    pfilter = ParserFilter(
+        category=category,
+        platform=platform,
+        streaming=streaming,
+        slurpable=slurpable,
+        plugin=plugin,
+        name=name
+    )
+
+    filtered = [p for p in parsers_list if pfilter.matches(p)]
+
+    if return_list:
+        return ParserList(
+            parsers=filtered,
+            filter=pfilter,
+            show_hidden=show_hidden,
+            show_deprecated=show_deprecated
+        )
+
+    return filtered
+
+
+def all_parser_info(
+    documentation: bool = False,
+    show_hidden: bool = False,
+    show_deprecated: bool = False,
+    category: Optional[Union[str, List[str]]] = None,
+    platform: Optional[Union[str, List[str]]] = None,
+    streaming: Optional[bool] = None,
+    slurpable: Optional[bool] = None,
+    plugin: Optional[bool] = None,
+    name: Optional[str] = None
+) -> List[ParserInfoType]:
+    """
+    Returns a list of dictionaries that includes metadata for all parser
+    modules. By default only non-hidden, non-deprecated parsers are
+    returned.
+
+    Additional filter parameters can be provided to narrow down results
+    (see filter_parsers() for details).
+
+    Parameters:
+
+        documentation:      (boolean)    include parser docstrings if `True`
+        show_hidden:        (boolean)    also show parsers marked as hidden
+                                         in their info metadata.
+        show_deprecated:    (boolean)    also show parsers marked as
+                                         deprecated in their info metadata.
+        category:           (str/list)   Filter by category tags.
+        platform:           (str/list)   Filter by compatible platforms.
+        streaming:          (bool)        Filter by streaming capability.
+        slurpable:          (bool)        Filter by slurp capability.
+        plugin:             (bool)        Filter by local plugin.
+        name:               (str)         Filter by parser name substring.
+    """
+    if documentation:
+        plist: List[str] = []
+        for p in parsers:
+            parser = get_parser(p)
+
+            if not show_hidden and _parser_is_hidden(parser):
+                continue
+
+            if not show_deprecated and _parser_is_deprecated(parser):
+                continue
+
+            plist.append(p)
+
+        p_info_list: List[ParserInfoType] = [parser_info(p, documentation=True) for p in plist]
+
+        if category or platform or streaming is not None or \
+           slurpable is not None or plugin is not None or name:
+            p_info_list = filter_parsers(
+                parsers_list=p_info_list,
+                category=category,
+                platform=platform,
+                streaming=streaming,
+                slurpable=slurpable,
+                plugin=plugin,
+                name=name
+            )
+
+        return p_info_list
+
+    plist_obj = ParserList.discover(
+        category=category,
+        platform=platform,
+        streaming=streaming,
+        slurpable=slurpable,
+        plugin=plugin,
+        name=name,
+        show_hidden=show_hidden,
+        show_deprecated=show_deprecated
+    )
+    return plist_obj.parsers
 
 def get_help(parser_mod_name: Union[str, ModuleType]) -> None:
     """

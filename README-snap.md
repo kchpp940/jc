@@ -1,9 +1,5 @@
 # How to use `jc` with `snap`
 
-> Snap build metadata is sourced from `jc/lib.py` → `__release__['snap']`.
-> This document is auto-generated — do not edit `README-snap.md` directly.
-> Edit `templates/readme-snap_template` and run `python snapgen.py` to regenerate.
-
 ## How to build `snap` package
 
 - Install `snapd`. [One](https://snapcraft.io/docs/installing-snapd) or [two](https://github.com/don-rumata/ansible-role-install-snap).
@@ -49,19 +45,6 @@ $ lxd init --auto
 ```bash
 $ snapcraft
 ```
-
-## Snap configuration
-
-| Field | Value |
-|-------|-------|
-| Base | `core22` |
-| Confinement | `strict` |
-| Grade | `stable` |
-| Branch | `snap-support` |
-| License | `MIT` |
-
-These values are read from `jc/lib.py` → `__release__['snap']` during
-`snapcraft` build via the `override-pull` scriptlet.
 
 ## How to install local snap file
 
