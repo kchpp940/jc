@@ -57,51 +57,6 @@ class info():
     deprecated = False
     hidden = False
 
-    # enhanced documentation - enables automatic sync to README, markdown, man page, and --about
-    example_input = '''\
-Address                  HWtype  HWaddress           Flags Mask            Iface
-gateway                  ether   00:50:56:f7:4a:fc   C                     ens33
-192.168.71.1             ether   00:50:56:c0:00:08   C                     ens33
-192.168.71.254           ether   00:50:56:fe:7a:b4   C                     ens33
-'''
-
-    example_output = {
-        'processed': [
-            {
-                "address": "gateway",
-                "hwtype": "ether",
-                "hwaddress": "00:50:56:f7:4a:fc",
-                "flags_mask": "C",
-                "iface": "ens33"
-            }
-        ],
-        'raw': [
-            {
-                "address": "gateway",
-                "hwtype": "ether",
-                "hwaddress": "00:50:56:f7:4a:fc",
-                "flags_mask": "C",
-                "iface": "ens33"
-            }
-        ]
-    }
-
-    platform_limitations = [
-        'On Windows, the `hwtype` field may be omitted',
-        'On AIX, bucket information lines are automatically skipped'
-    ]
-
-    common_exceptions = [
-        {
-            'name': 'ParseError',
-            'description': 'Raised when the input format is unrecognized or corrupted'
-        },
-        {
-            'name': 'LibraryNotInstalled',
-            'description': 'Raised when required dependencies are missing'
-        }
-    ]
-
 
 __version__ = info.version
 

@@ -40,7 +40,7 @@ Parsers:
 .TP
 .B
 \fB{{ parser.argument }}\fP
-{{ parser.description }}{% if parser.doc_complete %} (enhanced docs available){% endif %}
+{{ parser.description }}
 {% endfor %}
 
 .RE

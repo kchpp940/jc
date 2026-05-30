@@ -127,61 +127,6 @@ class info():
     magic_commands = ['arp']
     tags = ['command']
 
-    example_input = '''\
-Address                  HWtype  HWaddress           Flags Mask            Iface
-gateway                  ether   00:50:56:f7:4a:fc   C                     ens33
-192.168.71.1             ether   00:50:56:c0:00:08   C                     ens33
-192.168.71.254           ether   00:50:56:fe:7a:b4   C                     ens33
-'''
-
-    example_output = {
-        'processed': [
-            {
-                "address": "gateway",
-                "hwtype": "ether",
-                "hwaddress": "00:50:56:f7:4a:fc",
-                "flags_mask": "C",
-                "iface": "ens33"
-            },
-            {
-                "address": "192.168.71.1",
-                "hwtype": "ether",
-                "hwaddress": "00:50:56:c0:00:08",
-                "flags_mask": "C",
-                "iface": "ens33"
-            }
-        ],
-        'raw': [
-            {
-                "address": "gateway",
-                "hwtype": "ether",
-                "hwaddress": "00:50:56:f7:4a:fc",
-                "flags_mask": "C",
-                "iface": "ens33"
-            },
-            {
-                "address": "192.168.71.1",
-                "hwtype": "ether",
-                "hwaddress": "00:50:56:c0:00:08",
-                "flags_mask": "C",
-                "iface": "ens33"
-            }
-        ]
-    }
-
-    platform_limitations = [
-        'On AIX, bucket information lines and "There are X entries" lines are automatically skipped',
-        'On AIX, the interface field may be omitted for incomplete entries',
-        'On FreeBSD/Darwin, the `name` field is set to null if it is "?"'
-    ]
-
-    common_exceptions = [
-        {
-            'name': 'ParseError',
-            'description': 'Raised when the input format does not match any known arp output style'
-        }
-    ]
-
 
 __version__ = info.version
 

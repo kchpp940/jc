@@ -2,30 +2,6 @@
 # Generate markdown document files (*.md)
 # Requires the yapf python library
 # use ./docgen all to generate all docs
-# use ./docgen check to only run documentation integrity check
-# use ./docgen check --strict to fail if new/changed parsers lack docs
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Run documentation integrity check
-# --strict only blocks on new/changed parsers, not historical gaps
-echo "=== Running Documentation Integrity Check ==="
-python3 "${SCRIPT_DIR}/doccheck.py" --strict
-CHECK_EXIT=$?
-echo "=== Documentation Check Complete ==="
-echo
-
-# Exit early if check only
-if [[ $1 == "check" ]]; then
-    exit $CHECK_EXIT
-fi
-
-# If strict check failed on new/changed parsers, abort
-if [ $CHECK_EXIT -ne 0 ]; then
-    echo "ERROR: New/changed parsers are missing documentation. Fix before generating docs."
-    echo "Run: python3 doccheck.py --new --verbose"
-    exit $CHECK_EXIT
-fi
 
 cd jc
 (

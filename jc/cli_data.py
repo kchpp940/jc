@@ -3,7 +3,6 @@ from typing import List, Dict
 
 long_options_map: Dict[str, List[str]] = {
     '--about': ['a', 'about jc'],
-    '--doc-check': ['D', 'check parser documentation integrity'],
     '--force-color': ['C', 'force color output (overrides -m)'],
     '--debug': ['d', 'debug (double for verbose debug)'],
     '--help': ['h', 'help (--help --parser_name for parser documentation)'],
