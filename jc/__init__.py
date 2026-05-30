@@ -146,6 +146,7 @@ Get a list of streaming parser module names to be used in
 """
 from .lib import (
     __version__ as __version__,
+    __release__ as __release__,
     parse as parse,
     get_parser as get_parser,
     parser_mod_list as parser_mod_list,

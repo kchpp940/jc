@@ -10,7 +10,30 @@ from jc import appdirs
 from jc import utils
 
 
-__version__ = '1.25.6'
+__release__ = {
+    'version': '1.25.6',
+    'name': 'jc',
+    'description': 'Converts the output of popular command-line tools and file-types to JSON.',
+    'author': 'Kelly Brazil',
+    'author_email': 'kellyjonbrazil@gmail.com',
+    'website': 'https://github.com/kellyjonbrazil/jc',
+    'license': 'MIT',
+    'copyright': '© 2019-2025 Kelly Brazil',
+    'python_requires': '>=3.6',
+    'install_requires': [
+        'ruamel.yaml>=0.15.0',
+        'xmltodict>=0.12.0',
+        'Pygments>=2.3.0',
+    ],
+    'snap': {
+        'base': 'core22',
+        'confinement': 'strict',
+        'grade': 'stable',
+        'branch': 'snap-support',
+    },
+}
+
+__version__ = __release__['version']
 
 parsers: List[str] = [
     'acpi',

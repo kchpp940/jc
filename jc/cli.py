@@ -13,7 +13,7 @@ import subprocess
 from typing import List, Dict, Iterable, Union, Optional, TextIO
 from types import ModuleType
 from .lib import (
-    __version__, parser_info, all_parser_info, parsers, get_parser, _parser_is_streaming,
+    __release__, parser_info, all_parser_info, parsers, get_parser, _parser_is_streaming,
     parser_mod_list, standard_parser_mod_list, plugin_parser_mod_list, streaming_parser_mod_list,
     slurpable_parser_mod_list, _parser_is_slurpable
 )
@@ -47,13 +47,13 @@ SLICER_RE = re.compile(SLICER_PATTERN)
 
 
 class info():
-    version: str = __version__
-    description: str = 'JSON Convert'
-    author: str = 'Kelly Brazil'
-    author_email: str = 'kellyjonbrazil@gmail.com'
-    website: str = 'https://github.com/kellyjonbrazil/jc'
-    copyright: str = '© 2019-2025 Kelly Brazil'
-    license: str = 'MIT License'
+    version: str = __release__['version']
+    description: str = __release__['description']
+    author: str = __release__['author']
+    author_email: str = __release__['author_email']
+    website: str = __release__['website']
+    copyright: str = __release__['copyright']
+    license: str = __release__['license']
 
 
 # We only support 2.3.0+, pygments changed color names in 2.4.0.

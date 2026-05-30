@@ -23,7 +23,7 @@ $ sudo snap refresh snapcraft --edge
 - Clone the repo:
 
 ```bash
-$ git clone https://github.com/kellyjonbrazil/jc
+$ git clone {{ release.website }}
 ```
 
 - Change the directory:
@@ -35,7 +35,7 @@ $ cd ./jc
 - Select branch:
 
 ```bash
-$ git checkout snap-support
+$ git checkout {{ snap.branch }}
 ```
 
 - Initialize LXD:
@@ -54,11 +54,11 @@ $ snapcraft
 
 | Field | Value |
 |-------|-------|
-| Base | `core22` |
-| Confinement | `strict` |
-| Grade | `stable` |
-| Branch | `snap-support` |
-| License | `MIT` |
+| Base | `{{ snap.base }}` |
+| Confinement | `{{ snap.confinement }}` |
+| Grade | `{{ snap.grade }}` |
+| Branch | `{{ snap.branch }}` |
+| License | `{{ release.license }}` |
 
 These values are read from `jc/lib.py` → `__release__['snap']` during
 `snapcraft` build via the `override-pull` scriptlet.

@@ -1,24 +1,32 @@
+import ast
 import setuptools
+
+def _get_release():
+    with open('jc/lib.py', 'r') as f:
+        tree = ast.parse(f.read())
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            if node.targets[0].id == '__release__':
+                return ast.literal_eval(node.value)
+    raise RuntimeError('Unable to find __release__ dict in jc/lib.py')
+
+release = _get_release()
 
 with open('README.md', 'r') as f:
     long_description = f.read()
 
 setuptools.setup(
-    name='jc',
-    version='1.25.6',
-    author='Kelly Brazil',
-    author_email='kellyjonbrazil@gmail.com',
-    description='Converts the output of popular command-line tools and file-types to JSON.',
-    install_requires=[
-        'ruamel.yaml>=0.15.0',
-        'xmltodict>=0.12.0',
-        'Pygments>=2.3.0'
-    ],
-    license='MIT',
+    name=release['name'],
+    version=release['version'],
+    author=release['author'],
+    author_email=release['author_email'],
+    description=release['description'],
+    install_requires=release['install_requires'],
+    license=release['license'],
     long_description=long_description,
     long_description_content_type='text/markdown',
-    python_requires='>=3.6',
-    url='https://github.com/kellyjonbrazil/jc',
+    python_requires=release['python_requires'],
+    url=release['website'],
     packages=setuptools.find_packages(exclude=['*.tests', '*.tests.*', 'tests.*', 'tests']),
     package_data={'jc': ['py.typed']},
     entry_points={

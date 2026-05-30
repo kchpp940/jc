@@ -2,7 +2,7 @@
 
 from string import Template
 from .cli_data import long_options_map
-from .metadata_policy import for_completion
+from .lib import all_parser_info
 
 
 bash_template = Template('''\
@@ -225,7 +225,7 @@ special_options = ['--version', '-v', '--bash-comp', '-B', '--zsh-comp', '-Z']
 
 def get_commands():
     command_list = []
-    for cmd in for_completion():
+    for cmd in all_parser_info():
         if 'magic_commands' in cmd:
             command_list.extend(cmd['magic_commands'])
 
@@ -243,7 +243,7 @@ def get_options():
 
 def get_parsers():
     p_list = []
-    for cmd in for_completion():
+    for cmd in all_parser_info(show_hidden=True):
         if 'argument' in cmd:
             p_list.append(cmd['argument'])
 
@@ -252,7 +252,7 @@ def get_parsers():
 
 def get_parsers_descriptions():
     pd_list = []
-    for p in for_completion():
+    for p in all_parser_info(show_hidden=True):
         if 'description' in p:
             pd_list.append(f"'{p['argument']}:{p['description']}'")
 

@@ -1,4 +1,4 @@
-.TH jc 1 2026-05-29 1.25.6 "JSON Convert"
+.TH jc 1 2026-05-30 1.25.6 "JSON Convert"
 .SH NAME
 \fBjc\fP \- JSON Convert JSONifies the output of many CLI tools, file-types,
 and strings
@@ -611,6 +611,261 @@ PLIST file parser
 .B
 \fB--proc\fP
 `/proc/` file parser
+
+.TP
+.B
+\fB--proc-buddyinfo\fP
+`/proc/buddyinfo` file parser
+
+.TP
+.B
+\fB--proc-cmdline\fP
+`/proc/cmdline` file parser
+
+.TP
+.B
+\fB--proc-consoles\fP
+`/proc/consoles` file parser
+
+.TP
+.B
+\fB--proc-cpuinfo\fP
+`/proc/cpuinfo` file parser
+
+.TP
+.B
+\fB--proc-crypto\fP
+`/proc/crypto` file parser
+
+.TP
+.B
+\fB--proc-devices\fP
+`/proc/devices` file parser
+
+.TP
+.B
+\fB--proc-diskstats\fP
+`/proc/diskstats` file parser
+
+.TP
+.B
+\fB--proc-filesystems\fP
+`/proc/filesystems` file parser
+
+.TP
+.B
+\fB--proc-interrupts\fP
+`/proc/interrupts` file parser
+
+.TP
+.B
+\fB--proc-iomem\fP
+`/proc/iomem` file parser
+
+.TP
+.B
+\fB--proc-ioports\fP
+`/proc/ioports` file parser
+
+.TP
+.B
+\fB--proc-loadavg\fP
+`/proc/loadavg` file parser
+
+.TP
+.B
+\fB--proc-locks\fP
+`/proc/locks` file parser
+
+.TP
+.B
+\fB--proc-meminfo\fP
+`/proc/meminfo` file parser
+
+.TP
+.B
+\fB--proc-modules\fP
+`/proc/modules` file parser
+
+.TP
+.B
+\fB--proc-mtrr\fP
+`/proc/mtrr` file parser
+
+.TP
+.B
+\fB--proc-pagetypeinfo\fP
+`/proc/pagetypeinfo` file parser
+
+.TP
+.B
+\fB--proc-partitions\fP
+`/proc/partitions` file parser
+
+.TP
+.B
+\fB--proc-slabinfo\fP
+`/proc/slabinfo` file parser
+
+.TP
+.B
+\fB--proc-softirqs\fP
+`/proc/softirqs` file parser
+
+.TP
+.B
+\fB--proc-stat\fP
+`/proc/stat` file parser
+
+.TP
+.B
+\fB--proc-swaps\fP
+`/proc/swaps` file parser
+
+.TP
+.B
+\fB--proc-uptime\fP
+`/proc/uptime` file parser
+
+.TP
+.B
+\fB--proc-version\fP
+`/proc/version` file parser
+
+.TP
+.B
+\fB--proc-vmallocinfo\fP
+`/proc/vmallocinfo` file parser
+
+.TP
+.B
+\fB--proc-vmstat\fP
+`/proc/vmstat` file parser
+
+.TP
+.B
+\fB--proc-zoneinfo\fP
+`/proc/zoneinfo` file parser
+
+.TP
+.B
+\fB--proc-driver-rtc\fP
+`/proc/driver/rtc` file parser
+
+.TP
+.B
+\fB--proc-net-arp\fP
+`/proc/net/arp` file parser
+
+.TP
+.B
+\fB--proc-net-dev\fP
+`/proc/net/dev` file parser
+
+.TP
+.B
+\fB--proc-net-dev-mcast\fP
+`/proc/net/dev_mcast` file parser
+
+.TP
+.B
+\fB--proc-net-if-inet6\fP
+`/proc/net/if_inet6` file parser
+
+.TP
+.B
+\fB--proc-net-igmp\fP
+`/proc/net/igmp` file parser
+
+.TP
+.B
+\fB--proc-net-igmp6\fP
+`/proc/net/igmp6` file parser
+
+.TP
+.B
+\fB--proc-net-ipv6-route\fP
+`/proc/net/ipv6_route` file parser
+
+.TP
+.B
+\fB--proc-net-netlink\fP
+`/proc/net/netlink` file parser
+
+.TP
+.B
+\fB--proc-net-netstat\fP
+`/proc/net/netstat` file parser
+
+.TP
+.B
+\fB--proc-net-packet\fP
+`/proc/net/packet` file parser
+
+.TP
+.B
+\fB--proc-net-protocols\fP
+`/proc/net/protocols` file parser
+
+.TP
+.B
+\fB--proc-net-route\fP
+`/proc/net/route` file parser
+
+.TP
+.B
+\fB--proc-net-tcp\fP
+`/proc/net/tcp` and `/proc/net/tcp6` file parser
+
+.TP
+.B
+\fB--proc-net-unix\fP
+`/proc/net/unix` file parser
+
+.TP
+.B
+\fB--proc-pid-fdinfo\fP
+`/proc/<pid>/fdinfo/<fd>` file parser
+
+.TP
+.B
+\fB--proc-pid-io\fP
+`/proc/<pid>/io` file parser
+
+.TP
+.B
+\fB--proc-pid-maps\fP
+`/proc/<pid>/maps` file parser
+
+.TP
+.B
+\fB--proc-pid-mountinfo\fP
+`/proc/<pid>/mountinfo` file parser
+
+.TP
+.B
+\fB--proc-pid-numa-maps\fP
+`/proc/<pid>/numa_maps` file parser
+
+.TP
+.B
+\fB--proc-pid-smaps\fP
+`/proc/<pid>/smaps` file parser
+
+.TP
+.B
+\fB--proc-pid-stat\fP
+`/proc/<pid>/stat` file parser
+
+.TP
+.B
+\fB--proc-pid-statm\fP
+`/proc/<pid>/statm` file parser
+
+.TP
+.B
+\fB--proc-pid-status\fP
+`/proc/<pid>/status` file parser
 
 .TP
 .B
@@ -1409,4 +1664,4 @@ https://github.com/kellyjonbrazil/jc
 .SH COPYRIGHT
 Copyright (c) 2019-2025 Kelly Brazil
 
-License:  MIT License
+License:  MIT
