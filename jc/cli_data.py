@@ -7,23 +7,18 @@ long_options_map: Dict[str, List[str]] = {
     '--debug': ['d', 'debug (double for verbose debug)'],
     '--help': ['h', 'help (--help --parser_name for parser documentation)'],
     '--monochrome': ['m', 'monochrome output'],
+    '--ndjson-out': ['n', 'NDJSON output (one JSON object per line)'],
     '--meta-out': ['M', 'add metadata to output including timestamp, etc.'],
     '--pretty': ['p', 'pretty print output'],
     '--quiet': ['q', 'suppress warnings (double to ignore streaming errors)'],
     '--raw': ['r', 'raw output'],
     '--slurp': ['s', 'slurp multiple lines into an array'],
+    '--stream-buffer-limit': ['L', 'set max items for non-NDJSON streaming (0=unlimited)'],
     '--unbuffer': ['u', 'unbuffer output'],
     '--version': ['v', 'version info'],
     '--yaml-out': ['y', 'YAML output'],
     '--bash-comp': ['B', 'gen Bash completion: jc -B > /etc/bash_completion.d/jc'],
     '--zsh-comp': ['Z', 'gen Zsh completion: jc -Z > "${fpath[1]}/_jc"']
-}
-
-long_only_options: Dict[str, str] = {
-    '--plugin-dir': 'show local plugin directory path',
-    '--plugin-list': 'list local plugins and their status',
-    '--plugin-disable': 'disable a local plugin (--plugin-disable NAME or --plugin-disable=NAME)',
-    '--plugin-enable': 'enable a disabled local plugin (--plugin-enable NAME or --plugin-enable=NAME)'
 }
 
 new_pygments_colors: Dict[str, str] = {
@@ -65,7 +60,7 @@ old_pygments_colors: Dict[str, str] = {
 }
 
 helptext_preamble_string: str = f'''\
-jc converts the output of many commands, file-types, and strings to JSON or YAML
+jc converts the output of many commands, file-types, and strings to JSON, YAML, or NDJSON
 
 Usage:
 
@@ -113,12 +108,6 @@ Examples:
 
     Parser Documentation:
         $ jc --help --dig
-
-    Plugin Management:
-        $ jc --plugin-dir                       # Show local plugin directory
-        $ jc --plugin-list                      # List all local plugins
-        $ jc --plugin-disable=my_plugin         # Disable a local plugin
-        $ jc --plugin-enable=my_plugin          # Re-enable a disabled plugin
 
     More Help:
         $ jc -hh          # show hidden parsers

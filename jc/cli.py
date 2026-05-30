@@ -10,21 +10,21 @@ from datetime import datetime, timezone
 import textwrap
 import shlex
 import subprocess
-from typing import List, Dict, Iterable, Union, Optional, TextIO
+from typing import List, Dict, Iterable, Union, Optional, TextIO, Any
 from types import ModuleType
 from .lib import (
     __version__, parser_info, all_parser_info, parsers, get_parser, _parser_is_streaming,
     parser_mod_list, standard_parser_mod_list, plugin_parser_mod_list, streaming_parser_mod_list,
-    slurpable_parser_mod_list, _parser_is_slurpable, plugin_dir, plugin_list, plugin_disable,
-    plugin_enable
+    slurpable_parser_mod_list, _parser_is_slurpable
 )
 from .jc_types import JSONDictType, CustomColorType, ParserInfoType
 from . import utils
 from .cli_data import (
-    long_options_map, long_only_options, new_pygments_colors, old_pygments_colors,
-    helptext_preamble_string, slicetext_string, helptext_end_string
+    long_options_map, new_pygments_colors, old_pygments_colors, helptext_preamble_string,
+    slicetext_string, helptext_end_string
 )
 from .shell_completions import bash_completion, zsh_completion
+from .renderer import OutputRenderer, OUTPUT_JSON, OUTPUT_YAML, OUTPUT_NDJSON, STREAMING_ITEM_WARN_DEFAULT
 from . import tracebackplus
 from .exceptions import LibraryNotInstalled, ParseError
 
@@ -70,13 +70,12 @@ class JcCli():
     __slots__ = ('data_in', 'data_out', 'options', 'args', 'parser_module',
                  'parser_name', 'indent', 'pad', 'custom_colors',
                  'show_hidden', 'show_categories', 'ascii_only',
-                 'json_separators', 'json_indent', 'run_timestamp',
+                 'renderer', 'run_timestamp',
                  'inputlist', 'about', 'debug', 'verbose_debug',
                  'force_color', 'mono', 'help_me', 'pretty', 'quiet',
                  'ignore_exceptions', 'raw', 'slurp', 'meta_out', 'unbuffer',
-                 'version_info', 'yaml_output', 'bash_comp', 'zsh_comp',
-                 'plugin_dir_info', 'plugin_list_info',
-                 'plugin_disable_name', 'plugin_enable_name',
+                 'version_info', 'yaml_output', 'ndjson_output', 'bash_comp', 'zsh_comp',
+                 'stream_buffer_limit',
                  'magic_found_parser', 'magic_options', 'magic_run_command',
                  'magic_run_command_str', 'magic_stdout', 'magic_stderr',
                  'magic_returncode', 'slice_str', 'slice_start', 'slice_end')
@@ -88,14 +87,13 @@ class JcCli():
         self.args: List[str] = []
         self.parser_module: Optional[ModuleType] = None
         self.parser_name: Optional[str] = None
-        self.indent: int = 4
-        self.pad: int = 32
+        self.indent: int = 0
+        self.pad: int = 0
         self.custom_colors: CustomColorType = {}
         self.show_hidden: bool = False
         self.show_categories: bool = False
         self.ascii_only: bool = False
-        self.json_separators: Optional[tuple[str, str]] = (',', ':')
-        self.json_indent: Optional[int] = None
+        self.renderer: Optional[OutputRenderer] = None
         self.run_timestamp: Optional[datetime] = None
         self.inputlist: Optional[List[str]] = None
 
@@ -120,12 +118,10 @@ class JcCli():
         self.unbuffer: bool = False
         self.version_info: bool = False
         self.yaml_output: bool = False
+        self.ndjson_output: bool = False
         self.bash_comp: bool = False
         self.zsh_comp: bool = False
-        self.plugin_dir_info: bool = False
-        self.plugin_list_info: bool = False
-        self.plugin_disable_name: Optional[str] = None
-        self.plugin_enable_name: Optional[str] = None
+        self.stream_buffer_limit: Optional[int] = None
 
         # magic attributes
         self.magic_found_parser: Optional[str] = None
@@ -135,65 +131,6 @@ class JcCli():
         self.magic_stdout: Optional[Union[str, Iterable[str]]] = None
         self.magic_stderr: Optional[str] = None
         self.magic_returncode: int = 0
-
-    def _preprocess_plugin_args(self, args: List[str]) -> List[str]:
-        """
-        Preprocess plugin management arguments.
-
-        Scans the argument list for plugin management options (--plugin-dir,
-        --plugin-list, --plugin-disable, --plugin-enable), consumes them
-        and their associated values (for disable/enable), and returns the
-        filtered argument list with only non-plugin args remaining.
-
-        This ensures plugin management args do not interfere with magic
-        command detection or parser argument parsing.
-
-        Returns:
-            List[str]: Filtered argument list with plugin management args removed
-        """
-        filtered: List[str] = []
-        skip_next: bool = False
-
-        for i, arg in enumerate(args):
-            if skip_next:
-                skip_next = False
-                continue
-
-            if arg == '--plugin-dir':
-                self.plugin_dir_info = True
-                continue
-
-            if arg == '--plugin-list':
-                self.plugin_list_info = True
-                continue
-
-            if arg == '--plugin-disable':
-                if i + 1 < len(args):
-                    self.plugin_disable_name = args[i + 1]
-                    skip_next = True
-                else:
-                    self.plugin_disable_name = ''
-                continue
-
-            if arg.startswith('--plugin-disable='):
-                self.plugin_disable_name = arg.split('=', 1)[1]
-                continue
-
-            if arg == '--plugin-enable':
-                if i + 1 < len(args):
-                    self.plugin_enable_name = args[i + 1]
-                    skip_next = True
-                else:
-                    self.plugin_enable_name = ''
-                continue
-
-            if arg.startswith('--plugin-enable='):
-                self.plugin_enable_name = arg.split('=', 1)[1]
-                continue
-
-            filtered.append(arg)
-
-        return filtered
 
     def set_custom_colors(self) -> None:
         """
@@ -330,14 +267,6 @@ class JcCli():
             padding_text: str = padding_char * padding
             otext += indent_text + o_combined + padding_text + o_desc + '\n'
 
-        for option in long_only_options:
-            o_desc: str = long_only_options[option]
-            o_combined: str = '    ' + option
-            padding: int = self.pad - len(o_combined)
-            indent_text: str = padding_char * self.indent
-            padding_text: str = padding_char * padding
-            otext += indent_text + o_combined + padding_text + o_desc + '\n'
-
         return otext
 
     @staticmethod
@@ -375,7 +304,7 @@ class JcCli():
         otherwise the general help text is printed.
         """
         self.indent = 4
-        self.pad = 32
+        self.pad = 22
 
         if self.show_categories:
             utils._safe_print(self.parser_categories_text())
@@ -422,94 +351,55 @@ class JcCli():
         '''
         return textwrap.dedent(versiontext_string)
 
-    def yaml_out(self) -> str:
-        """
-        Return a YAML formatted string. String may include color codes. If the
-        YAML library is not installed, output will fall back to JSON with a
-        warning message to STDERR"""
-        # make ruamel.yaml import optional
-        try:
-            from ruamel.yaml import YAML, representer
-            YAML_INSTALLED = True
-        except Exception:
-            YAML_INSTALLED = False
+    def _get_output_format(self) -> str:
+        """Determine the output format based on CLI options with priority: NDJSON > YAML > JSON"""
+        if self.ndjson_output:
+            return OUTPUT_NDJSON
+        elif self.yaml_output:
+            return OUTPUT_YAML
+        return OUTPUT_JSON
 
-        if YAML_INSTALLED:
-            y_string_buf = io.BytesIO()
+    def create_renderer(self) -> OutputRenderer:
+        """Create and return the unified OutputRenderer based on current CLI options"""
+        output_format = self._get_output_format()
 
-            # monkey patch to disable plugins since we don't use them and in
-            # ruamel.yaml versions prior to 0.17.0 the use of __file__ in the
-            # plugin code is incompatible with the pyoxidizer packager
-            YAML.official_plug_ins = lambda a: []  # type: ignore
+        if output_format == OUTPUT_NDJSON and self.yaml_output:
+            utils.warning_message(['Both --ndjson-out and --yaml-out options detected. Using NDJSON output.'])
 
-            # monkey patch to disable aliases
-            representer.RoundTripRepresenter.ignore_aliases = lambda x, y: True  # type: ignore
+        streaming_item_limit = self.stream_buffer_limit
+        streaming_item_warn: Optional[int] = STREAMING_ITEM_WARN_DEFAULT
 
-            yaml = YAML()
-            yaml.default_flow_style = False
-            yaml.explicit_start = True  # type: ignore
-            yaml.allow_unicode = not self.ascii_only
-            yaml.encoding = 'utf-8'
-            yaml.dump(self.data_out, y_string_buf)
-            y_string = y_string_buf.getvalue().decode('utf-8')[:-1]
+        if self.stream_buffer_limit is not None:
+            if self.stream_buffer_limit == 0:
+                streaming_item_limit = None
+                streaming_item_warn = None
+            elif self.stream_buffer_limit > 0:
+                streaming_item_limit = self.stream_buffer_limit
+                if streaming_item_warn is not None and streaming_item_limit <= streaming_item_warn:
+                    streaming_item_warn = None
 
-            if not self.mono:
-                class JcStyle(Style):
-                    styles: CustomColorType = self.custom_colors
-
-                return str(highlight(y_string, YamlLexer(), Terminal256Formatter(style=JcStyle))[0:-1])
-
-            return y_string
-
-        utils.warning_message(['YAML Library not installed. Reverting to JSON output.'])
-        return self.json_out()
-
-    def json_out(self) -> str:
-        """
-        Return a JSON formatted string. String may include color codes or be
-        pretty printed.
-        """
-        import json
-
-        if self.pretty:
-            self.json_indent = 2
-            self.json_separators = None
-
-        # Convert any non-serializable object to a string
-        def string_serializer(data):
-            return str(data)
-
-        j_string = json.dumps(
-            self.data_out,
-            indent=self.json_indent,
-            separators=self.json_separators,
-            ensure_ascii=self.ascii_only,
-            default=string_serializer
+        return OutputRenderer(
+            output_format=output_format,
+            pretty=self.pretty,
+            mono=self.mono,
+            ascii_only=self.ascii_only,
+            unbuffer=self.unbuffer,
+            custom_colors=self.custom_colors if PYGMENTS_INSTALLED else {},
+            streaming_item_warn=streaming_item_warn,
+            streaming_item_limit=streaming_item_limit,
         )
 
-        if not self.mono and PYGMENTS_INSTALLED:
-            class JcStyle(Style):
-                styles: CustomColorType = self.custom_colors
-
-            return str(highlight(j_string, JsonLexer(), Terminal256Formatter(style=JcStyle))[0:-1])
-
-        return j_string
+    def render_output(self, data: Any) -> str:
+        """Render data using the unified renderer. Creates renderer if not exists."""
+        if self.renderer is None:
+            self.renderer = self.create_renderer()
+        return self.renderer.render(data)
 
     def safe_print_out(self) -> None:
-        """Safely prints JSON or YAML output in both UTF-8 and ASCII systems"""
-        if self.yaml_output:
-            try:
-                print(self.yaml_out(), flush=self.unbuffer)
-            except UnicodeEncodeError:
-                self.ascii_only = True
-                print(self.yaml_out(), flush=self.unbuffer)
-
-        else:
-            try:
-                print(self.json_out(), flush=self.unbuffer)
-            except UnicodeEncodeError:
-                self.ascii_only = True
-                print(self.json_out(), flush=self.unbuffer)
+        """Safely prints JSON, YAML, or NDJSON output in both UTF-8 and ASCII systems using the unified renderer"""
+        if self.renderer is None:
+            self.renderer = self.create_renderer()
+        self.renderer.safe_print(self.data_out)
 
     def magic_parser(self) -> None:
         """
@@ -528,6 +418,13 @@ class JcCli():
             if arg in long_options_map:
                 self.magic_options.extend(long_options_map[arg][0])
                 args_given.pop(0)
+                if arg == '--stream-buffer-limit':
+                    if args_given:
+                        try:
+                            self.stream_buffer_limit = int(args_given.pop(0))
+                        except ValueError:
+                            utils.warning_message(['--stream-buffer-limit requires an integer argument'])
+                            self.stream_buffer_limit = None
                 continue
 
             # parser found - use standard syntax
@@ -854,13 +751,18 @@ class JcCli():
                 ignore_exceptions=self.ignore_exceptions
             )
 
-            for line in result:
-                self.data_out = line
-                if self.meta_out:
-                    self.run_timestamp = datetime.now(timezone.utc)
-                    self.add_metadata_to_output()
+            def _enriched_stream():
+                for line in result:
+                    self.data_out = line
+                    if self.meta_out:
+                        self.run_timestamp = datetime.now(timezone.utc)
+                        self.add_metadata_to_output()
+                    yield self.data_out
 
-                self.safe_print_out()
+            if self.renderer is None:
+                self.renderer = self.create_renderer()
+
+            self.renderer.safe_print_iter(_enriched_stream())
 
     def standard_parse_and_print(self) -> None:
         """supports binary and UTF-8 string data"""
@@ -898,12 +800,8 @@ class JcCli():
         if sys.platform.startswith('win32'):
             os.system('')
 
-        # preprocess plugin management args first; they are consumed
-        # and removed from the argument list so they don't interfere
-        # with magic command detection or parser argument parsing
-        self.args = self._preprocess_plugin_args(sys.argv)
-
-        # parse magic syntax: e.g. jc -p ls -al
+        # parse magic syntax first: e.g. jc -p ls -al
+        self.args = sys.argv
         self.magic_parser()
 
         # add magic options to regular options
@@ -911,9 +809,28 @@ class JcCli():
 
         # find options if magic_parser did not find a command
         if not self.magic_found_parser:
-            for opt in self.args:
+            args_iter = iter(self.args)
+            for opt in args_iter:
                 if SLICER_RE.match(opt):
                     self.slice_str = opt
+
+                if opt == '--stream-buffer-limit':
+                    try:
+                        val = next(args_iter)
+                        self.stream_buffer_limit = int(val)
+                    except (StopIteration, ValueError):
+                        utils.warning_message([f'--stream-buffer-limit requires an integer argument'])
+                        self.stream_buffer_limit = None
+                    continue
+
+                if opt.startswith('--stream-buffer-limit='):
+                    val = opt.split('=', 1)[1]
+                    try:
+                        self.stream_buffer_limit = int(val)
+                    except ValueError:
+                        utils.warning_message([f'--stream-buffer-limit requires an integer argument. Got: {val}'])
+                        self.stream_buffer_limit = None
+                    continue
 
                 if opt in long_options_map:
                     self.options.extend(long_options_map[opt][0])
@@ -937,11 +854,15 @@ class JcCli():
         self.unbuffer = 'u' in self.options
         self.version_info = 'v' in self.options
         self.yaml_output = 'y' in self.options
+        self.ndjson_output = 'n' in self.options
         self.bash_comp = 'B' in self.options
         self.zsh_comp = 'Z' in self.options
 
         self.set_mono()
         self.set_custom_colors()
+
+        if self.ndjson_output:
+            self.mono = True
 
         if self.quiet:
             utils.CLI_QUIET = True
@@ -968,45 +889,6 @@ class JcCli():
 
         if self.zsh_comp:
             utils._safe_print(zsh_completion())
-            self.exit_clean()
-
-        if self.plugin_dir_info:
-            utils._safe_print(plugin_dir())
-            self.exit_clean()
-
-        if self.plugin_list_info:
-            p_list = plugin_list()
-            if not p_list:
-                utils._safe_print('No local plugins found.')
-            else:
-                for p in p_list:
-                    status = 'enabled' if p['enabled'] else 'disabled'
-                    overrides = ' [overrides builtin]' if p['overrides_builtin'] else ''
-                    utils._safe_print(f'{p["cli_name"]}: {status}{overrides} ({p["path"]})')
-            self.exit_clean()
-
-        if self.plugin_disable_name is not None:
-            if self.plugin_disable_name == '':
-                utils.error_message(['Plugin name required. Usage: jc --plugin-disable NAME or jc --plugin-disable=NAME'])
-                self.exit_error()
-            try:
-                plugin_disable(self.plugin_disable_name)
-                utils._safe_print(f'Plugin "{self.plugin_disable_name}" disabled.')
-            except ValueError as e:
-                utils.error_message([str(e)])
-                self.exit_error()
-            self.exit_clean()
-
-        if self.plugin_enable_name is not None:
-            if self.plugin_enable_name == '':
-                utils.error_message(['Plugin name required. Usage: jc --plugin-enable NAME or jc --plugin-enable=NAME'])
-                self.exit_error()
-            try:
-                plugin_enable(self.plugin_enable_name)
-                utils._safe_print(f'Plugin "{self.plugin_enable_name}" enabled.')
-            except ValueError as e:
-                utils.error_message([str(e)])
-                self.exit_error()
             self.exit_clean()
 
         # if magic syntax used, try to run the command and set the magic attributes
@@ -1045,6 +927,13 @@ class JcCli():
                     f'{e.__class__.__name__}: {e}',
                     'If this is the correct parser, try setting the locale to C (LC_ALL=C).',
                     f'For details use the -d or -dd option. Use "jc -h --{self.parser_name}" for help.'
+                ])
+                self.exit_error()
+
+            except MemoryError as e:
+                utils.error_message([
+                    f'{self.parser_name}: Streaming buffer limit exceeded.',
+                    str(e)
                 ])
                 self.exit_error()
 

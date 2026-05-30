@@ -1192,7 +1192,7 @@ Options:
 .TP
 .B
 \fB-a\fP, \fB--about\fP
-About \fBjc\fP (JSON or YAML output)
+About \fBjc\fP (JSON, YAML, or NDJSON output)
 .TP
 .B
 \fB-C\fP, \fB--force-color\fP
@@ -1218,6 +1218,16 @@ Add metadata to output including timestamp, parser name, magic command, magic
 command exit code, etc.
 .TP
 .B
+\fB-n\fP, \fB--ndjson-out\fP
+NDJSON output (one JSON object per line). This format is useful for streaming
+parsers, large file input, and pipe consumption scenarios where each line can
+be processed independently. NDJSON output is always compact and monochrome.
+Unlike JSON/YAML output, NDJSON provides true O(1) memory streaming for
+streaming parsers since items are output immediately without collecting them
+into an array. If both \fB--ndjson-out\fP and \fB--yaml-out\fP are specified,
+NDJSON takes precedence.
+.TP
+.B
 \fB-p\fP, \fB--pretty\fP
 Pretty print output
 .TP
@@ -1234,6 +1244,15 @@ additional semantic processing
 .B
 \fB-s\fP, \fB--slurp\fP
 Slurp multiple lines into an array. (use \fB-hhh\fP to find compatible parsers)
+.TP
+.B
+\fB--stream-buffer-limit\fP \fIN\fP
+Set the maximum number of items a streaming parser will collect into memory
+for JSON/YAML array assembly. When the limit is exceeded, a
+\fBMemoryError\fP is raised and processing stops. This option has no effect
+on NDJSON output, which always streams with O(1) memory. Default: no hard
+limit (a warning is emitted after 1,000 items). Set to \fB0\fP to disable
+both the limit and the warning.
 .TP
 .B
 \fB-u\fP, \fB--unbuffer\fP
@@ -1496,6 +1515,33 @@ parse large amounts of command output (e.g. \fBls -lR /\fP) and can sometimes
 process the data more quickly. Streaming parsers have slightly different
 behavior than standard parsers as outlined below.
 
+.PP
+The \fB--ndjson-out\fP / \fB-n\fP option can be used with both streaming parsers
+and standard parsers to produce NDJSON output. For standard parsers that return
+an array of results, each array element is output as a separate JSON line. For
+streaming parsers, \fB--ndjson-out\fP ensures consistent compact output with
+no color codes, making it suitable for pipe consumption.
+
+.PP
+\fBMemory Considerations for Streaming Parsers\fP
+
+When using JSON or YAML output format with streaming parsers, all parsed
+items are collected into memory before being output as a single array or
+document. This means JSON/YAML streaming output does \fBnot\fP provide the
+memory benefits of true streaming. For large or long-lived data streams,
+use \fB--ndjson-out\fP (\fB-n\fP) to get true O(1) memory streaming where
+each item is output immediately.
+
+A warning is emitted to stderr when a streaming parser collects more than
+1,000 items into memory for JSON/YAML array assembly. This threshold is
+not a hard limit, but a signal that \fB--ndjson-out\fP should be
+considered for better memory efficiency.
+
+To set a hard limit on the number of collected items, use
+\fB--stream-buffer-limit N\fP. When the limit is exceeded, processing
+stops with a \fBMemoryError\fP. Set \fB--stream-buffer-limit 0\fP to
+disable both the warning and the hard limit entirely.
+
 .RS
 Note: Streaming parsers cannot be used with the "magic" syntax
 .RE
@@ -1664,4 +1710,4 @@ https://github.com/kellyjonbrazil/jc
 .SH COPYRIGHT
 Copyright (c) 2019-2025 Kelly Brazil
 
-License:  MIT
+License:  MIT License

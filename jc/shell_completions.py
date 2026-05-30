@@ -1,8 +1,8 @@
 """jc - JSON Convert shell_completions module"""
 
 from string import Template
-from .cli_data import long_options_map, long_only_options
-from .lib import all_parser_info, disabled_plugins, local_parsers
+from .cli_data import long_options_map
+from .lib import all_parser_info
 
 
 bash_template = Template('''\
@@ -219,9 +219,9 @@ _jc
 ''')
 
 about_options = ['--about', '-a']
-about_mod_options = ['--pretty', '-p', '--yaml-out', '-y', '--monochrome', '-m', '--force-color', '-C']
+about_mod_options = ['--pretty', '-p', '--yaml-out', '-y', '--ndjson-out', '-n', '--monochrome', '-m', '--force-color', '-C', '--stream-buffer-limit']
 help_options = ['--help', '-h']
-special_options = ['--version', '-v', '--bash-comp', '-B', '--zsh-comp', '-Z', '--plugin-dir', '--plugin-list', '--plugin-disable=', '--plugin-enable=']
+special_options = ['--version', '-v', '--bash-comp', '-B', '--zsh-comp', '-Z']
 
 def get_commands():
     command_list = []
@@ -238,13 +238,6 @@ def get_options():
         options_list.append(opt)
         options_list.append('-' + long_options_map[opt][0])
 
-    for opt in long_only_options:
-        options_list.append(opt)
-        if opt == '--plugin-disable':
-            options_list.append('--plugin-disable=')
-        if opt == '--plugin-enable':
-            options_list.append('--plugin-enable=')
-
     return options_list
 
 
@@ -252,9 +245,6 @@ def get_parsers():
     p_list = []
     for cmd in all_parser_info(show_hidden=True):
         if 'argument' in cmd:
-            cli_name = cmd['argument'].lstrip('-')
-            if cli_name in local_parsers and cli_name in disabled_plugins:
-                continue
             p_list.append(cmd['argument'])
 
     return p_list
@@ -264,9 +254,6 @@ def get_parsers_descriptions():
     pd_list = []
     for p in all_parser_info(show_hidden=True):
         if 'description' in p:
-            cli_name = p['argument'].lstrip('-')
-            if cli_name in local_parsers and cli_name in disabled_plugins:
-                continue
             pd_list.append(f"'{p['argument']}:{p['description']}'")
 
     return pd_list

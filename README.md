@@ -344,10 +344,12 @@ option.
 | `-h`  | `--help`        | Help. Use `jc -h --parser_name` for parser documentation. Use twice to show hidden parsers (e.g. `-hh`). Use thrice to show parser categories (e.g. `-hhh`). |
 | `-m`  | `--monochrome`  | Monochrome output                                                                                                                                            |
 | `-M`  | `--meta-out`    | Add metadata to output including timestamp, parser name, magic command, magic command exit code, etc.                                                        |                                                                        |
+| `-n`  | `--ndjson-out`  | NDJSON output (one JSON object per line). Useful for streaming parsers, large files, and pipe consumption. Always compact and monochrome. Unlike JSON/YAML, provides true O(1) memory streaming. Takes precedence over `--yaml-out` if both specified. |
 | `-p`  | `--pretty`      | Pretty format the JSON output                                                                                                                                |
 | `-q`  | `--quiet`       | Quiet mode. Suppresses parser warning messages (use `-qq` to ignore streaming parser errors)                                                                 |
 | `-r`  | `--raw`         | Raw output. Provides more literal output, typically with string values and no additional semantic processing                                                 |
 | `-s`  | `--slurp`       | Slurp multiple lines into an array. (use `-hhh` to find compatible parsers)                                                                                  |
+|       | `--stream-buffer-limit N` | Set max items for non-NDJSON streaming collection. Exceeding it raises `MemoryError`. `0` disables limit and warning. Default: no hard limit (warn at 1,000). No effect on NDJSON. |
 | `-u`  | `--unbuffer`    | Unbuffer output                                                                                                                                              |
 | `-v`  | `--version`     | Version information                                                                                                                                          |
 | `-y`  | `--yaml-out`    | YAML output                                                                                                                                                  |
