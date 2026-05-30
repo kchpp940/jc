@@ -26,9 +26,7 @@ if sys.version_info >= (3, 8):
             "streaming": bool,
             "plugin": bool,
             "hidden": bool,
-            "deprecated": bool,
-            "compatibility_string": str,
-            "is_slurpable": bool
+            "deprecated": bool
         },
         total=False
     )

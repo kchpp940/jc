@@ -146,7 +146,6 @@ Get a list of streaming parser module names to be used in
 """
 from .lib import (
     __version__ as __version__,
-    jc_info as jc_info,
     parse as parse,
     get_parser as get_parser,
     parser_mod_list as parser_mod_list,
@@ -154,13 +153,7 @@ from .lib import (
     standard_parser_mod_list as standard_parser_mod_list,
     streaming_parser_mod_list as streaming_parser_mod_list,
     slurpable_parser_mod_list as slurpable_parser_mod_list,
-    get_help as get_help
-)
-from .metadata import (
     parser_info as parser_info,
     all_parser_info as all_parser_info,
-    jc_about as jc_about,
-    parser_doc_footer as parser_doc_footer,
-    parser_categories as parser_categories,
-    magic_commands_dict as magic_commands_dict
+    get_help as get_help
 )
