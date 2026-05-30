@@ -59,9 +59,7 @@ Schema:
       "extra":                        string,
       "epoch":                        integer,  # [0]
       "epoch_utc":                    integer,  # [1]
-      "unparsable":                   string,   # [2]
-
-      # _jc_meta schema: see jc.streaming._JC_META_PROGRESS_SCHEMA
+      "unparsable":                   string    # [2]
     }
 
     [0] naive timestamp

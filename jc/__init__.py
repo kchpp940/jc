@@ -155,5 +155,11 @@ from .lib import (
     slurpable_parser_mod_list as slurpable_parser_mod_list,
     parser_info as parser_info,
     all_parser_info as all_parser_info,
-    get_help as get_help
+    get_help as get_help,
+    plugin_dir as plugin_dir,
+    plugin_list as plugin_list,
+    plugin_disable as plugin_disable,
+    plugin_enable as plugin_enable,
+    set_plugin_state_path as set_plugin_state_path,
+    reset_plugin_state_path as reset_plugin_state_path
 )

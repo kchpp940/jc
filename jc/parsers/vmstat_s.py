@@ -68,11 +68,18 @@ Schema:
       "epoch":                            integer,     # [0]
       "epoch_utc":                        integer      # [1]
 
-      # _jc_meta schema: see jc.streaming._JC_META_PROGRESS_SCHEMA
+      # below object only exists if using -qq or ignore_exceptions=True
+      "_jc_meta": {
+        "success":                        boolean,     # [2]
+        "error":                          string,      # [3]
+        "line":                           string       # [3]
+      }
     }
 
     [0] naive timestamp if -t flag is used
     [1] aware timestamp if -t flag is used and UTC TZ
+    [2] false if error parsing
+    [3] exists if "success" is false
 
 Examples:
 

@@ -9,7 +9,6 @@ long_options_map: Dict[str, List[str]] = {
     '--monochrome': ['m', 'monochrome output'],
     '--meta-out': ['M', 'add metadata to output including timestamp, etc.'],
     '--pretty': ['p', 'pretty print output'],
-    '--progress': ['P', 'add progress metadata to streaming output (line, lines_processed)'],
     '--quiet': ['q', 'suppress warnings (double to ignore streaming errors)'],
     '--raw': ['r', 'raw output'],
     '--slurp': ['s', 'slurp multiple lines into an array'],
@@ -18,6 +17,13 @@ long_options_map: Dict[str, List[str]] = {
     '--yaml-out': ['y', 'YAML output'],
     '--bash-comp': ['B', 'gen Bash completion: jc -B > /etc/bash_completion.d/jc'],
     '--zsh-comp': ['Z', 'gen Zsh completion: jc -Z > "${fpath[1]}/_jc"']
+}
+
+long_only_options: Dict[str, str] = {
+    '--plugin-dir': 'show local plugin directory path',
+    '--plugin-list': 'list local plugins and their status',
+    '--plugin-disable': 'disable a local plugin (--plugin-disable NAME or --plugin-disable=NAME)',
+    '--plugin-enable': 'enable a disabled local plugin (--plugin-enable NAME or --plugin-enable=NAME)'
 }
 
 new_pygments_colors: Dict[str, str] = {
@@ -107,6 +113,12 @@ Examples:
 
     Parser Documentation:
         $ jc --help --dig
+
+    Plugin Management:
+        $ jc --plugin-dir                       # Show local plugin directory
+        $ jc --plugin-list                      # List all local plugins
+        $ jc --plugin-disable=my_plugin         # Disable a local plugin
+        $ jc --plugin-enable=my_plugin          # Re-enable a disabled plugin
 
     More Help:
         $ jc -hh          # show hidden parsers

@@ -15,13 +15,14 @@ from types import ModuleType
 from .lib import (
     __version__, parser_info, all_parser_info, parsers, get_parser, _parser_is_streaming,
     parser_mod_list, standard_parser_mod_list, plugin_parser_mod_list, streaming_parser_mod_list,
-    slurpable_parser_mod_list, _parser_is_slurpable
+    slurpable_parser_mod_list, _parser_is_slurpable, plugin_dir, plugin_list, plugin_disable,
+    plugin_enable
 )
 from .jc_types import JSONDictType, CustomColorType, ParserInfoType
 from . import utils
 from .cli_data import (
-    long_options_map, new_pygments_colors, old_pygments_colors, helptext_preamble_string,
-    slicetext_string, helptext_end_string
+    long_options_map, long_only_options, new_pygments_colors, old_pygments_colors,
+    helptext_preamble_string, slicetext_string, helptext_end_string
 )
 from .shell_completions import bash_completion, zsh_completion
 from . import tracebackplus
@@ -72,8 +73,10 @@ class JcCli():
                  'json_separators', 'json_indent', 'run_timestamp',
                  'inputlist', 'about', 'debug', 'verbose_debug',
                  'force_color', 'mono', 'help_me', 'pretty', 'quiet',
-                 'ignore_exceptions', 'raw', 'slurp', 'meta_out', 'progress', 'unbuffer',
+                 'ignore_exceptions', 'raw', 'slurp', 'meta_out', 'unbuffer',
                  'version_info', 'yaml_output', 'bash_comp', 'zsh_comp',
+                 'plugin_dir_info', 'plugin_list_info',
+                 'plugin_disable_name', 'plugin_enable_name',
                  'magic_found_parser', 'magic_options', 'magic_run_command',
                  'magic_run_command_str', 'magic_stdout', 'magic_stderr',
                  'magic_returncode', 'slice_str', 'slice_start', 'slice_end')
@@ -85,8 +88,8 @@ class JcCli():
         self.args: List[str] = []
         self.parser_module: Optional[ModuleType] = None
         self.parser_name: Optional[str] = None
-        self.indent: int = 0
-        self.pad: int = 0
+        self.indent: int = 4
+        self.pad: int = 32
         self.custom_colors: CustomColorType = {}
         self.show_hidden: bool = False
         self.show_categories: bool = False
@@ -114,12 +117,15 @@ class JcCli():
         self.raw: bool = False
         self.slurp: bool = False
         self.meta_out: bool = False
-        self.progress: bool = False
         self.unbuffer: bool = False
         self.version_info: bool = False
         self.yaml_output: bool = False
         self.bash_comp: bool = False
         self.zsh_comp: bool = False
+        self.plugin_dir_info: bool = False
+        self.plugin_list_info: bool = False
+        self.plugin_disable_name: Optional[str] = None
+        self.plugin_enable_name: Optional[str] = None
 
         # magic attributes
         self.magic_found_parser: Optional[str] = None
@@ -129,6 +135,65 @@ class JcCli():
         self.magic_stdout: Optional[Union[str, Iterable[str]]] = None
         self.magic_stderr: Optional[str] = None
         self.magic_returncode: int = 0
+
+    def _preprocess_plugin_args(self, args: List[str]) -> List[str]:
+        """
+        Preprocess plugin management arguments.
+
+        Scans the argument list for plugin management options (--plugin-dir,
+        --plugin-list, --plugin-disable, --plugin-enable), consumes them
+        and their associated values (for disable/enable), and returns the
+        filtered argument list with only non-plugin args remaining.
+
+        This ensures plugin management args do not interfere with magic
+        command detection or parser argument parsing.
+
+        Returns:
+            List[str]: Filtered argument list with plugin management args removed
+        """
+        filtered: List[str] = []
+        skip_next: bool = False
+
+        for i, arg in enumerate(args):
+            if skip_next:
+                skip_next = False
+                continue
+
+            if arg == '--plugin-dir':
+                self.plugin_dir_info = True
+                continue
+
+            if arg == '--plugin-list':
+                self.plugin_list_info = True
+                continue
+
+            if arg == '--plugin-disable':
+                if i + 1 < len(args):
+                    self.plugin_disable_name = args[i + 1]
+                    skip_next = True
+                else:
+                    self.plugin_disable_name = ''
+                continue
+
+            if arg.startswith('--plugin-disable='):
+                self.plugin_disable_name = arg.split('=', 1)[1]
+                continue
+
+            if arg == '--plugin-enable':
+                if i + 1 < len(args):
+                    self.plugin_enable_name = args[i + 1]
+                    skip_next = True
+                else:
+                    self.plugin_enable_name = ''
+                continue
+
+            if arg.startswith('--plugin-enable='):
+                self.plugin_enable_name = arg.split('=', 1)[1]
+                continue
+
+            filtered.append(arg)
+
+        return filtered
 
     def set_custom_colors(self) -> None:
         """
@@ -265,6 +330,14 @@ class JcCli():
             padding_text: str = padding_char * padding
             otext += indent_text + o_combined + padding_text + o_desc + '\n'
 
+        for option in long_only_options:
+            o_desc: str = long_only_options[option]
+            o_combined: str = '    ' + option
+            padding: int = self.pad - len(o_combined)
+            indent_text: str = padding_char * self.indent
+            padding_text: str = padding_char * padding
+            otext += indent_text + o_combined + padding_text + o_desc + '\n'
+
         return otext
 
     @staticmethod
@@ -302,7 +375,7 @@ class JcCli():
         otherwise the general help text is printed.
         """
         self.indent = 4
-        self.pad = 22
+        self.pad = 32
 
         if self.show_categories:
             utils._safe_print(self.parser_categories_text())
@@ -778,8 +851,7 @@ class JcCli():
                 self.data_in,
                 raw=self.raw,
                 quiet=self.quiet,
-                ignore_exceptions=self.ignore_exceptions,
-                progress=self.progress
+                ignore_exceptions=self.ignore_exceptions
             )
 
             for line in result:
@@ -826,8 +898,12 @@ class JcCli():
         if sys.platform.startswith('win32'):
             os.system('')
 
-        # parse magic syntax first: e.g. jc -p ls -al
-        self.args = sys.argv
+        # preprocess plugin management args first; they are consumed
+        # and removed from the argument list so they don't interfere
+        # with magic command detection or parser argument parsing
+        self.args = self._preprocess_plugin_args(sys.argv)
+
+        # parse magic syntax: e.g. jc -p ls -al
         self.magic_parser()
 
         # add magic options to regular options
@@ -858,7 +934,6 @@ class JcCli():
         self.raw = 'r' in self.options
         self.slurp = 's' in self.options
         self.meta_out = 'M' in self.options
-        self.progress = 'P' in self.options
         self.unbuffer = 'u' in self.options
         self.version_info = 'v' in self.options
         self.yaml_output = 'y' in self.options
@@ -893,6 +968,45 @@ class JcCli():
 
         if self.zsh_comp:
             utils._safe_print(zsh_completion())
+            self.exit_clean()
+
+        if self.plugin_dir_info:
+            utils._safe_print(plugin_dir())
+            self.exit_clean()
+
+        if self.plugin_list_info:
+            p_list = plugin_list()
+            if not p_list:
+                utils._safe_print('No local plugins found.')
+            else:
+                for p in p_list:
+                    status = 'enabled' if p['enabled'] else 'disabled'
+                    overrides = ' [overrides builtin]' if p['overrides_builtin'] else ''
+                    utils._safe_print(f'{p["cli_name"]}: {status}{overrides} ({p["path"]})')
+            self.exit_clean()
+
+        if self.plugin_disable_name is not None:
+            if self.plugin_disable_name == '':
+                utils.error_message(['Plugin name required. Usage: jc --plugin-disable NAME or jc --plugin-disable=NAME'])
+                self.exit_error()
+            try:
+                plugin_disable(self.plugin_disable_name)
+                utils._safe_print(f'Plugin "{self.plugin_disable_name}" disabled.')
+            except ValueError as e:
+                utils.error_message([str(e)])
+                self.exit_error()
+            self.exit_clean()
+
+        if self.plugin_enable_name is not None:
+            if self.plugin_enable_name == '':
+                utils.error_message(['Plugin name required. Usage: jc --plugin-enable NAME or jc --plugin-enable=NAME'])
+                self.exit_error()
+            try:
+                plugin_enable(self.plugin_enable_name)
+                utils._safe_print(f'Plugin "{self.plugin_enable_name}" enabled.')
+            except ValueError as e:
+                utils.error_message([str(e)])
+                self.exit_error()
             self.exit_clean()
 
         # if magic syntax used, try to run the command and set the magic attributes

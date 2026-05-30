@@ -2,8 +2,9 @@
 import sys
 import os
 import re
+import json
 import importlib
-from typing import List, Iterable, Optional, Union, Iterator
+from typing import List, Iterable, Optional, Union, Iterator, Set
 from types import ModuleType
 from .jc_types import ParserInfoType, JSONDictType
 from jc import appdirs
@@ -272,17 +273,119 @@ def _is_valid_parser_plugin(name: str, local_parsers_dir: str) -> bool:
 # Create the local_parsers list. This is a list of custom or
 # override parsers from <user_data_dir>/jc/jcparsers/*.py.
 # Once this list is created, extend the parsers list with it.
+_builtin_parsers: List[str] = list(parsers)
+
+
+class PluginStateStore:
+    """
+    Persistent storage for disabled plugin state.
+
+    Supports path injection for testing and temporary runs so
+    production user configuration is not touched.
+    """
+
+    def __init__(self) -> None:
+        self._custom_path: Optional[str] = None
+        self._disabled: Set[str] = set()
+        self._loaded_from: Optional[str] = None
+        self._load()
+
+    def _get_path(self) -> str:
+        """Return the active storage path"""
+        if self._custom_path:
+            return self._custom_path
+        d_dir = appdirs.user_data_dir('jc', 'jc')
+        return os.path.join(d_dir, 'disabled_plugins.json')
+
+    def _load(self) -> None:
+        """Load disabled plugins from storage"""
+        path = self._get_path()
+        self._disabled = set()
+        self._loaded_from = path
+
+        if os.path.isfile(path):
+            try:
+                with open(path, 'r') as f:
+                    data = json.load(f)
+                if isinstance(data, list):
+                    self._disabled = set(data)
+            except Exception:
+                pass
+
+    def _save(self) -> None:
+        """Save disabled plugins to storage"""
+        path = self._get_path()
+        d_dir = os.path.dirname(path)
+        try:
+            os.makedirs(d_dir, exist_ok=True)
+            with open(path, 'w') as f:
+                json.dump(sorted(self._disabled), f, indent=2)
+        except Exception as e:
+            utils.warning_message([f'Could not save disabled plugins state: {e}'])
+
+    def set_path(self, path: str) -> None:
+        """
+        Set a custom path for the disabled plugins state file.
+
+        Use this for testing or temporary runs to avoid modifying
+        the user's actual configuration. Reloads from the new path.
+        """
+        self._custom_path = path
+        self._load()
+
+    def reset_path(self) -> None:
+        """Reset to the default user data directory path and reload."""
+        self._custom_path = None
+        self._load()
+
+    def is_disabled(self, cli_name: str) -> bool:
+        """Check if a plugin is disabled"""
+        return cli_name in self._disabled
+
+    def add(self, cli_name: str) -> None:
+        """Mark a plugin as disabled and persist to disk"""
+        self._disabled.add(cli_name)
+        self._save()
+
+    def discard(self, cli_name: str) -> None:
+        """Mark a plugin as enabled and persist to disk"""
+        self._disabled.discard(cli_name)
+        self._save()
+
+    def __contains__(self, cli_name: str) -> bool:
+        return cli_name in self._disabled
+
+    def __iter__(self):
+        return iter(self._disabled)
+
+    def __len__(self) -> int:
+        return len(self._disabled)
+
+    def __repr__(self) -> str:
+        return repr(self._disabled)
+
+
+_plugin_state = PluginStateStore()
+
+# Backward-compatible alias for existing code that uses disabled_plugins directly
+disabled_plugins = _plugin_state
+
+
 local_parsers: List[str] = []
-data_dir = appdirs.user_data_dir('jc', 'jc')  # type: ignore
+data_dir = appdirs.user_data_dir('jc', 'jc')
 local_parsers_dir = os.path.join(data_dir, 'jcparsers')
 if os.path.isdir(local_parsers_dir):
     sys.path.append(data_dir)
     for name in os.listdir(local_parsers_dir):
         if _is_valid_parser_plugin(name, local_parsers_dir):
             plugin_name = name[0:-3]
-            local_parsers.append(_modname_to_cliname(plugin_name))
-            if plugin_name not in parsers:
-                parsers.append(_modname_to_cliname(plugin_name))
+            plugin_cli_name = _modname_to_cliname(plugin_name)
+            if plugin_cli_name in disabled_plugins:
+                local_parsers.append(plugin_cli_name)
+                continue
+            local_parsers.append(plugin_cli_name)
+            if plugin_cli_name not in parsers:
+                parsers.append(plugin_cli_name)
     try:
         del name
     except Exception:
@@ -334,18 +437,28 @@ def get_parser(parser_mod_name: Union[str, ModuleType]) -> ModuleType:
 
 def _get_parser(parser_mod_name: str) -> ModuleType:
     """Return the parser module object"""
-    # ensure parser_mod_name is a true module name and not a cli name
     parser_mod_name = _cliname_to_modname(parser_mod_name)
     parser_cli_name = _modname_to_cliname(parser_mod_name)
-    modpath: str = 'jcparsers.' if parser_cli_name in local_parsers else 'jc.parsers.'
+    is_local = parser_cli_name in local_parsers
+    is_disabled = parser_cli_name in disabled_plugins and is_local
+    modpath: str = 'jcparsers.' if is_local and not is_disabled else 'jc.parsers.'
     mod = None
 
     try:
         mod =  importlib.import_module(f'{modpath}{parser_mod_name}')
     except Exception as e:
-        mod =  importlib.import_module(f'jc.parsers.disabled_parser')
-        mod.__name__ = parser_mod_name
-        utils.warning_message([f'"{parser_mod_name}" parser disabled due to error: {e}'])
+        if is_local and not is_disabled and parser_cli_name in _builtin_parsers:
+            try:
+                mod = importlib.import_module(f'jc.parsers.{parser_mod_name}')
+                utils.warning_message([f'Plugin "{parser_mod_name}" failed, falling back to built-in. Error: {e}'])
+            except Exception:
+                mod = importlib.import_module('jc.parsers.disabled_parser')
+                mod.__name__ = parser_mod_name
+                utils.warning_message([f'"{parser_mod_name}" parser disabled due to error: {e}'])
+        else:
+            mod = importlib.import_module('jc.parsers.disabled_parser')
+            mod.__name__ = parser_mod_name
+            utils.warning_message([f'"{parser_mod_name}" parser disabled due to error: {e}'])
 
     return mod
 
@@ -401,7 +514,6 @@ def parse(
     quiet: bool = False,
     raw: bool = False,
     ignore_exceptions: Optional[bool] = None,
-    progress: bool = False,
     **kwargs
 ) -> Union[JSONDictType, List[JSONDictType], Iterator[JSONDictType]]:
     """
@@ -487,30 +599,12 @@ def parse(
         ignore_exceptions:  (boolean)    ignore parsing exceptions if `True`
                                          (streaming parsers only)
 
-        progress:           (boolean)    add progress metadata to streaming
-                                         parser output if `True`
-                                         (streaming parsers only)
-
     Returns:
 
         Standard Parsers:   Dictionary or List of Dictionaries
         Streaming Parsers:  Generator Object containing Dictionaries
     """
     jc_parser = get_parser(parser_mod_name)
-    is_streaming = _parser_is_streaming(jc_parser)
-
-    if is_streaming and progress:
-        if ignore_exceptions is not None:
-            return jc_parser.parse(
-                data,
-                quiet=quiet,
-                raw=raw,
-                ignore_exceptions=ignore_exceptions,
-                progress=progress,
-                **kwargs
-            )
-
-        return jc_parser.parse(data, quiet=quiet, raw=raw, progress=progress, **kwargs)
 
     if ignore_exceptions is not None:
         return jc_parser.parse(
@@ -530,6 +624,8 @@ def parser_mod_list(
     """Returns a list of all available parser module names."""
     plist: List[str] = []
     for p in parsers:
+        if p in local_parsers and p in disabled_plugins:
+            continue
         parser = get_parser(p)
 
         if not show_hidden and _parser_is_hidden(parser):
@@ -552,6 +648,8 @@ def plugin_parser_mod_list(
     """
     plist: List[str] = []
     for p in local_parsers:
+        if p in disabled_plugins:
+            continue
         parser = get_parser(p)
 
         if not show_hidden and _parser_is_hidden(parser):
@@ -575,6 +673,8 @@ def standard_parser_mod_list(
     """
     plist: List[str] = []
     for p in parsers:
+        if p in local_parsers and p in disabled_plugins:
+            continue
         parser = get_parser(p)
 
         if not _parser_is_streaming(parser):
@@ -599,6 +699,8 @@ def streaming_parser_mod_list(
     """
     plist: List[str] = []
     for p in parsers:
+        if p in local_parsers and p in disabled_plugins:
+            continue
         parser = get_parser(p)
 
         if _parser_is_streaming(parser):
@@ -623,6 +725,8 @@ def slurpable_parser_mod_list(
     """
     plist: List[str] = []
     for p in parsers:
+        if p in local_parsers and p in disabled_plugins:
+            continue
         parser = get_parser(p)
 
         if _parser_is_slurpable(parser):
@@ -668,6 +772,10 @@ def parser_info(
 
     if _modname_to_cliname(parser_mod_name) in local_parsers:
         info_dict['plugin'] = True
+        if _modname_to_cliname(parser_mod_name) in disabled_plugins:
+            info_dict['plugin_disabled'] = True
+        if _modname_to_cliname(parser_mod_name) in _builtin_parsers:
+            info_dict['plugin_overrides_builtin'] = True
 
     if documentation:
         docs = parser_mod.__doc__
@@ -697,6 +805,8 @@ def all_parser_info(
     """
     plist: List[str] = []
     for p in parsers:
+        if p in local_parsers and p in disabled_plugins:
+            continue
         parser = get_parser(p)
 
         if not show_hidden and _parser_is_hidden(parser):
@@ -721,3 +831,116 @@ def get_help(parser_mod_name: Union[str, ModuleType]) -> None:
     """
     jc_parser = get_parser(parser_mod_name)
     help(jc_parser)
+
+def plugin_dir() -> str:
+    """
+    Returns the path to the local plugin directory.
+
+    Returns:
+
+        String:  the path to the jcparsers directory
+    """
+    return local_parsers_dir
+
+def plugin_list() -> List[JSONDictType]:
+    """
+    Returns a list of dictionaries with information about each local
+    plugin, including its name, file path, whether it overrides a
+    built-in parser, and whether it is currently enabled.
+
+    Returns:
+
+        List of Dictionaries, each containing:
+            - name:           (str)   module name (underscores)
+            - cli_name:       (str)   CLI name (dashes)
+            - path:           (str)   full path to the plugin .py file
+            - overrides_builtin: (bool) True if this plugin shadows a
+                                      built-in parser
+            - enabled:        (bool)  True if the plugin is active
+    """
+    result: List[JSONDictType] = []
+    for p in local_parsers:
+        mod_name = _cliname_to_modname(p)
+        plugin_path = os.path.join(local_parsers_dir, mod_name + '.py')
+        result.append({
+            'name': mod_name,
+            'cli_name': p,
+            'path': plugin_path,
+            'overrides_builtin': p in _builtin_parsers,
+            'enabled': p not in disabled_plugins
+        })
+    return result
+
+def plugin_disable(name: str) -> None:
+    """
+    Temporarily disable a local plugin. This change is persisted to disk
+    so it takes effect across CLI invocations, library calls, and
+    shell completions.
+
+    If the disabled plugin was overriding a built-in parser, the
+    built-in parser will be used instead. If it was a custom (non-
+    override) plugin, it will no longer appear in parser lists.
+
+    Parameters:
+
+        name:   (string) name of the plugin to disable. Accepts
+                module_name, cli-name, and --argument-name variants.
+    """
+    parser_mod_name = _cliname_to_modname(name)
+    parser_cli_name = _modname_to_cliname(parser_mod_name)
+
+    if parser_cli_name not in local_parsers:
+        raise ValueError(f'"{name}" is not a local plugin.')
+
+    if parser_cli_name in _plugin_state:
+        raise ValueError(f'Plugin "{name}" is already disabled.')
+
+    _plugin_state.add(parser_cli_name)
+
+    if parser_cli_name in parsers and parser_cli_name not in _builtin_parsers:
+        parsers.remove(parser_cli_name)
+
+def plugin_enable(name: str) -> None:
+    """
+    Re-enable a previously disabled local plugin. This change is
+    persisted to disk so it takes effect across CLI invocations,
+    library calls, and shell completions.
+
+    Parameters:
+
+        name:   (string) name of the plugin to enable. Accepts
+                module_name, cli-name, and --argument-name variants.
+    """
+    parser_mod_name = _cliname_to_modname(name)
+    parser_cli_name = _modname_to_cliname(parser_mod_name)
+
+    if parser_cli_name not in local_parsers:
+        raise ValueError(f'"{name}" is not a local plugin.')
+
+    if parser_cli_name not in _plugin_state:
+        raise ValueError(f'Plugin "{name}" is not disabled.')
+
+    _plugin_state.discard(parser_cli_name)
+
+    if parser_cli_name not in parsers:
+        parsers.append(parser_cli_name)
+
+def set_plugin_state_path(path: str) -> None:
+    """
+    Set a custom path for the disabled plugins state file.
+
+    Use this for testing or temporary runs to avoid modifying the user's
+    actual configuration. Reloads state from the new path immediately.
+
+    Parameters:
+
+        path:   (string) path to the JSON file for storing disabled plugin state.
+                Can be an absolute or relative path.
+    """
+    _plugin_state.set_path(path)
+
+def reset_plugin_state_path() -> None:
+    """
+    Reset to the default user data directory path and reload state.
+    """
+    _plugin_state.reset_path()

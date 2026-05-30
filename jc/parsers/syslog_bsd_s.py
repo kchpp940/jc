@@ -29,7 +29,12 @@ Schema:
       "content":                    string,
       "unparsable":                 string,  # [0]
 
-      # _jc_meta schema: see jc.streaming._JC_META_PROGRESS_SCHEMA
+      # below object only exists if using -qq or ignore_exceptions=True
+      "_jc_meta": {
+        "success":      boolean,     # false if error parsing
+        "error":        string,      # exists if "success" is false
+        "line":         string       # exists if "success" is false
+      }
     }
 
     [0] this field exists if the syslog line is not parsable. The value

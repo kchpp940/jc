@@ -1,23 +1,11 @@
 """jc - JSON Convert streaming utils"""
 
 from functools import wraps
-from typing import Tuple, Union, Iterable, Callable, TypeVar, cast, Any, List
+from typing import Tuple, Union, Iterable, Callable, TypeVar, cast, Any
 from .jc_types import JSONDictType
 
 
 F = TypeVar('F', bound=Callable[..., Any])
-
-_JC_META_PROGRESS_SCHEMA = r"""
-      "_jc_meta": {
-        "success":          boolean,     # false if error parsing
-        "line_start":       integer,     # 0-based index of first input line
-        "line_end":         integer,     # 0-based index of last input line + 1
-        "line_count":       integer,     # number of lines consumed (= line_end - line_start)
-        "lines_processed":  integer,     # cumulative lines consumed so far
-        "error":            string,      # only if "success" is false
-        "error_context":    string       # only if "success" is false
-      }
-"""
 
 
 def streaming_input_type_check(data: Iterable[Union[str, bytes]]) -> None:
@@ -35,95 +23,25 @@ def streaming_line_input_type_check(line: str) -> None:
         raise TypeError("Input line must be a 'str' object.")
 
 
-def _build_meta(
-    success: bool,
-    line_start: int,
-    line_end: int,
-    lines_processed: int,
-    error: str = '',
-    error_context: str = '',
-    include_error: bool = False,
-    include_context: bool = False
-) -> JSONDictType:
-    """
-    Build the _jc_meta dictionary with consistent field structure.
-
-    line_start: 0-based index of first input line consumed for this record
-    line_end:   0-based index of last input line consumed + 1 (exclusive)
-    line_count: number of input lines consumed for this record (= line_end - line_start)
-    lines_processed: total input lines consumed so far (cumulative)
-    error:      error message (only on failure)
-    error_context: original line(s) that caused the error (only on failure)
-    """
-    meta: JSONDictType = {
-        'success': success,
-        'line_start': line_start,
-        'line_end': line_end,
-        'line_count': line_end - line_start,
-        'lines_processed': lines_processed
-    }
-
-    if include_error and error:
-        meta['error'] = error
-
-    if include_context and error_context:
-        meta['error_context'] = error_context
-
-    return meta
-
-
-def stream_success(
-    output_line: JSONDictType,
-    ignore_exceptions: bool,
-    line_start: int = 0,
-    line_end: int = 0,
-    lines_processed: int = 0,
-    progress: bool = False
-) -> JSONDictType:
-    """
-    Add `_jc_meta` object to output line if `ignore_exceptions=True` or
-    `progress=True`.
-
-    When `progress=True`, the `_jc_meta` object includes line range and
-    cumulative line count.
-    """
-    if ignore_exceptions or progress:
-        output_line['_jc_meta'] = _build_meta(
-            success=True,
-            line_start=line_start,
-            line_end=line_end,
-            lines_processed=lines_processed
-        )
+def stream_success(output_line: JSONDictType, ignore_exceptions: bool) -> JSONDictType:
+    """Add `_jc_meta` object to output line if `ignore_exceptions=True`"""
+    if ignore_exceptions:
+        output_line.update({'_jc_meta': {'success': True}})
 
     return output_line
 
 
-def stream_error(
-    e: BaseException,
-    line: str,
-    line_start: int = 0,
-    line_end: int = 0,
-    lines_processed: int = 0,
-    progress: bool = False
-) -> JSONDictType:
+def stream_error(e: BaseException, line: str) -> JSONDictType:
     """
     Return an error `_jc_meta` field.
-
-    When `progress=True`, also includes line range and cumulative line count.
-    Always includes error message and context when -qq is used.
     """
-    error_msg = f'{e.__class__.__name__}: {e}'
     return {
-        '_jc_meta': _build_meta(
-            success=False,
-            line_start=line_start,
-            line_end=line_end,
-            lines_processed=lines_processed,
-            error=error_msg,
-            error_context=line.strip(),
-            include_error=True,
-            include_context=True
-        )
+        '_jc_meta':
+            {
+                'success': False,
+                'error': f'{e.__class__.__name__}: {e}',
+                'line': line.strip()
+            }
     }
 
 
@@ -132,12 +50,6 @@ def add_jc_meta(func: F) -> F:
     Decorator for streaming parsers to add `stream_success` and
     `stream_error` objects. This simplifies the `yield` lines in the
     streaming parsers.
-
-    When `progress=True` is passed, the decorator wraps the input data
-    iterable to track each consumed line with its 0-based index. Between
-    yields, it records all lines consumed since the last yield to compute
-    `line_start`, `line_end`, and `line_count` for each output record.
-    This works for both single-line and multi-line parsers.
 
     With the decorator on parse():
 
@@ -172,66 +84,22 @@ def add_jc_meta(func: F) -> F:
 
         ignore_exceptions:  (bool)  continue processing lines and ignore
                             exceptions if `True`.
-
-        progress:     (bool)  add progress metadata (line_start/line_end/
-                      line_count/lines_processed) to `_jc_meta` if `True`.
     """
     @wraps(func)
     def wrapper(*args, **kwargs):
-        progress = kwargs.pop('progress', False)
         ignore_exceptions = kwargs.get('ignore_exceptions', False)
+        gen = func(*args, **kwargs)
+        for value in gen:
+            # if the yielded value is a dict, then we know it was a
+            # successfully parsed line
+            if isinstance(value, dict):
+                yield stream_success(value, ignore_exceptions)
 
-        lines_processed = 0
-
-        if progress:
-            original_data = args[0]
-            last_yield_line = 0
-
-            def _tracking_iter(data):
-                nonlocal lines_processed
-                for item in data:
-                    lines_processed += 1
-                    yield item
-
-            args = (_tracking_iter(original_data),) + args[1:]
-
-            gen = func(*args, **kwargs)
-            for value in gen:
-                if isinstance(value, dict):
-                    current_line_end = lines_processed
-                    yield stream_success(
-                        value,
-                        ignore_exceptions,
-                        line_start=last_yield_line,
-                        line_end=current_line_end,
-                        lines_processed=current_line_end,
-                        progress=progress
-                    )
-                    last_yield_line = current_line_end
-
-                else:
-                    exception_obj = value[0]
-                    line = value[1]
-                    current_line_end = lines_processed
-                    yield stream_error(
-                        exception_obj,
-                        line,
-                        line_start=last_yield_line,
-                        line_end=current_line_end,
-                        lines_processed=current_line_end,
-                        progress=progress
-                    )
-                    last_yield_line = current_line_end
-
-        else:
-            gen = func(*args, **kwargs)
-            for value in gen:
-                if isinstance(value, dict):
-                    yield stream_success(value, ignore_exceptions)
-                else:
-                    exception_obj = value[0]
-                    line = value[1]
-                    yield stream_error(exception_obj, line)
+            # otherwise it will be a tuple and we know it was an error
+            else:
+                exception_obj = value[0]
+                line = value[1]
+                yield stream_error(exception_obj, line)
 
     return cast(F, wrapper)
 
