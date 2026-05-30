@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import textwrap
 import shlex
 import subprocess
-from typing import List, Dict, Iterable, Union, Optional, TextIO, Any
+from typing import List, Dict, Iterable, Union, Optional, TextIO
 from types import ModuleType
 from .lib import (
     __version__, parser_info, all_parser_info, parsers, get_parser, _parser_is_streaming,
@@ -24,9 +24,9 @@ from .cli_data import (
     slicetext_string, helptext_end_string
 )
 from .shell_completions import bash_completion, zsh_completion
-from .renderer import OutputRenderer, OUTPUT_JSON, OUTPUT_YAML, OUTPUT_NDJSON, STREAMING_ITEM_WARN_DEFAULT
 from . import tracebackplus
 from .exceptions import LibraryNotInstalled, ParseError
+from . import docrules
 
 PYGMENTS_INSTALLED: bool = False
 try:
@@ -70,12 +70,11 @@ class JcCli():
     __slots__ = ('data_in', 'data_out', 'options', 'args', 'parser_module',
                  'parser_name', 'indent', 'pad', 'custom_colors',
                  'show_hidden', 'show_categories', 'ascii_only',
-                 'renderer', 'run_timestamp',
-                 'inputlist', 'about', 'debug', 'verbose_debug',
+                 'json_separators', 'json_indent', 'run_timestamp',
+                 'inputlist', 'about', 'doc_check', 'debug', 'verbose_debug',
                  'force_color', 'mono', 'help_me', 'pretty', 'quiet',
                  'ignore_exceptions', 'raw', 'slurp', 'meta_out', 'unbuffer',
-                 'version_info', 'yaml_output', 'ndjson_output', 'bash_comp', 'zsh_comp',
-                 'stream_buffer_limit',
+                 'version_info', 'yaml_output', 'bash_comp', 'zsh_comp',
                  'magic_found_parser', 'magic_options', 'magic_run_command',
                  'magic_run_command_str', 'magic_stdout', 'magic_stderr',
                  'magic_returncode', 'slice_str', 'slice_start', 'slice_end')
@@ -93,7 +92,8 @@ class JcCli():
         self.show_hidden: bool = False
         self.show_categories: bool = False
         self.ascii_only: bool = False
-        self.renderer: Optional[OutputRenderer] = None
+        self.json_separators: Optional[tuple[str, str]] = (',', ':')
+        self.json_indent: Optional[int] = None
         self.run_timestamp: Optional[datetime] = None
         self.inputlist: Optional[List[str]] = None
 
@@ -104,6 +104,7 @@ class JcCli():
 
         # cli options
         self.about: bool = False
+        self.doc_check: bool = False
         self.debug: bool = False
         self.verbose_debug: bool = False
         self.force_color: bool = False
@@ -118,10 +119,8 @@ class JcCli():
         self.unbuffer: bool = False
         self.version_info: bool = False
         self.yaml_output: bool = False
-        self.ndjson_output: bool = False
         self.bash_comp: bool = False
         self.zsh_comp: bool = False
-        self.stream_buffer_limit: Optional[int] = None
 
         # magic attributes
         self.magic_found_parser: Optional[str] = None
@@ -291,6 +290,56 @@ class JcCli():
             'parsers': all_parser_info(show_hidden=True, show_deprecated=True)
         }
 
+    @staticmethod
+    def _doc_check_report(verbose: bool = False) -> None:
+        """Generate a report of parser documentation integrity"""
+        report_lines = ['JC Parser Documentation Integrity Check', '=' * 50, '']
+        complete_count = 0
+        incomplete_changed = []
+        all_parsers_list = [p['name'] for p in all_parser_info(show_hidden=False, show_deprecated=False)]
+        changed_parsers = docrules.get_changed_parsers()
+
+        for parser_name in sorted(all_parsers_list):
+            info = parser_info(parser_name)
+            missing = docrules.check_parser(info)
+            is_changed = parser_name in changed_parsers
+            if not missing:
+                status = '✓ COMPLETE'
+                complete_count += 1
+                if verbose:
+                    report_lines.append(f'{parser_name:30} {status}')
+            else:
+                if is_changed:
+                    status = '✗ INCOMPLETE (new/changed)'
+                    incomplete_changed.append(parser_name)
+                else:
+                    status = '✗ INCOMPLETE'
+                report_lines.append(f'{parser_name:30} {status}')
+                if verbose:
+                    for m in missing:
+                        report_lines.append(f'    - {m}')
+                    report_lines.append('')
+
+        if not verbose:
+            report_lines.append('')
+            report_lines.append('Use -DD (verbose) to see details on incomplete parsers.')
+
+        report_lines.append('')
+        report_lines.append('=' * 50)
+        report_lines.append(f'Summary: {complete_count}/{len(all_parsers_list)} parsers have complete documentation')
+        report_lines.append(f'         {len(all_parsers_list) - complete_count} parsers need enhanced documentation')
+
+        if incomplete_changed:
+            report_lines.append('')
+            report_lines.append('⚠ New/changed parsers missing documentation (blocks strict mode):')
+            for p in incomplete_changed:
+                report_lines.append(f'  - {p}')
+        elif changed_parsers:
+            report_lines.append('')
+            report_lines.append('✓ All new/changed parsers have complete documentation.')
+
+        utils._safe_print('\n'.join(report_lines))
+
     def helptext(self) -> str:
         """Return the help text with the list of parsers"""
         parsers_string: str = self.parsers_text()
@@ -325,8 +374,39 @@ class JcCli():
                 if 'slurpable' in p_info.get('tags', []):
                     slurpy = 'This parser can be used with the `--slurp` command-line option.\n\n'
 
+                example_input = p_info.get('example_input', None)
+                example_output = p_info.get('example_output', None)
+                platform_limitations = p_info.get('platform_limitations', None)
+                common_exceptions = p_info.get('common_exceptions', None)
+
+                enhanced_docs = ''
+                if example_input:
+                    enhanced_docs += '### Example Input\n\n```\n' + example_input.rstrip() + '\n```\n\n'
+
+                if example_output:
+                    import json
+                    if 'processed' in example_output:
+                        enhanced_docs += '### Example Output (Processed)\n\n```json\n' + json.dumps(example_output['processed'], indent=2) + '\n```\n\n'
+                    if 'raw' in example_output:
+                        enhanced_docs += '### Example Output (Raw)\n\n```json\n' + json.dumps(example_output['raw'], indent=2) + '\n```\n\n'
+
+                if platform_limitations:
+                    enhanced_docs += '### Platform Limitations\n\n'
+                    for limitation in platform_limitations:
+                        enhanced_docs += f'- {limitation}\n'
+                    enhanced_docs += '\n'
+
+                if common_exceptions:
+                    enhanced_docs += '### Common Exceptions\n\n'
+                    for exc in common_exceptions:
+                        exc_name = exc.get('name', 'Unknown')
+                        exc_desc = exc.get('description', '')
+                        enhanced_docs += f'- **{exc_name}**: {exc_desc}\n'
+                    enhanced_docs += '\n'
+
                 doc_text: str = \
                     f'{docs}\n' \
+                    f'{enhanced_docs}' \
                     f'Compatibility:  {compatible}\n\n' \
                     f'{slurpy}' \
                     f'Version {version} by {author} ({author_email})\n'
@@ -351,55 +431,94 @@ class JcCli():
         '''
         return textwrap.dedent(versiontext_string)
 
-    def _get_output_format(self) -> str:
-        """Determine the output format based on CLI options with priority: NDJSON > YAML > JSON"""
-        if self.ndjson_output:
-            return OUTPUT_NDJSON
-        elif self.yaml_output:
-            return OUTPUT_YAML
-        return OUTPUT_JSON
+    def yaml_out(self) -> str:
+        """
+        Return a YAML formatted string. String may include color codes. If the
+        YAML library is not installed, output will fall back to JSON with a
+        warning message to STDERR"""
+        # make ruamel.yaml import optional
+        try:
+            from ruamel.yaml import YAML, representer
+            YAML_INSTALLED = True
+        except Exception:
+            YAML_INSTALLED = False
 
-    def create_renderer(self) -> OutputRenderer:
-        """Create and return the unified OutputRenderer based on current CLI options"""
-        output_format = self._get_output_format()
+        if YAML_INSTALLED:
+            y_string_buf = io.BytesIO()
 
-        if output_format == OUTPUT_NDJSON and self.yaml_output:
-            utils.warning_message(['Both --ndjson-out and --yaml-out options detected. Using NDJSON output.'])
+            # monkey patch to disable plugins since we don't use them and in
+            # ruamel.yaml versions prior to 0.17.0 the use of __file__ in the
+            # plugin code is incompatible with the pyoxidizer packager
+            YAML.official_plug_ins = lambda a: []  # type: ignore
 
-        streaming_item_limit = self.stream_buffer_limit
-        streaming_item_warn: Optional[int] = STREAMING_ITEM_WARN_DEFAULT
+            # monkey patch to disable aliases
+            representer.RoundTripRepresenter.ignore_aliases = lambda x, y: True  # type: ignore
 
-        if self.stream_buffer_limit is not None:
-            if self.stream_buffer_limit == 0:
-                streaming_item_limit = None
-                streaming_item_warn = None
-            elif self.stream_buffer_limit > 0:
-                streaming_item_limit = self.stream_buffer_limit
-                if streaming_item_warn is not None and streaming_item_limit <= streaming_item_warn:
-                    streaming_item_warn = None
+            yaml = YAML()
+            yaml.default_flow_style = False
+            yaml.explicit_start = True  # type: ignore
+            yaml.allow_unicode = not self.ascii_only
+            yaml.encoding = 'utf-8'
+            yaml.dump(self.data_out, y_string_buf)
+            y_string = y_string_buf.getvalue().decode('utf-8')[:-1]
 
-        return OutputRenderer(
-            output_format=output_format,
-            pretty=self.pretty,
-            mono=self.mono,
-            ascii_only=self.ascii_only,
-            unbuffer=self.unbuffer,
-            custom_colors=self.custom_colors if PYGMENTS_INSTALLED else {},
-            streaming_item_warn=streaming_item_warn,
-            streaming_item_limit=streaming_item_limit,
+            if not self.mono:
+                class JcStyle(Style):
+                    styles: CustomColorType = self.custom_colors
+
+                return str(highlight(y_string, YamlLexer(), Terminal256Formatter(style=JcStyle))[0:-1])
+
+            return y_string
+
+        utils.warning_message(['YAML Library not installed. Reverting to JSON output.'])
+        return self.json_out()
+
+    def json_out(self) -> str:
+        """
+        Return a JSON formatted string. String may include color codes or be
+        pretty printed.
+        """
+        import json
+
+        if self.pretty:
+            self.json_indent = 2
+            self.json_separators = None
+
+        # Convert any non-serializable object to a string
+        def string_serializer(data):
+            return str(data)
+
+        j_string = json.dumps(
+            self.data_out,
+            indent=self.json_indent,
+            separators=self.json_separators,
+            ensure_ascii=self.ascii_only,
+            default=string_serializer
         )
 
-    def render_output(self, data: Any) -> str:
-        """Render data using the unified renderer. Creates renderer if not exists."""
-        if self.renderer is None:
-            self.renderer = self.create_renderer()
-        return self.renderer.render(data)
+        if not self.mono and PYGMENTS_INSTALLED:
+            class JcStyle(Style):
+                styles: CustomColorType = self.custom_colors
+
+            return str(highlight(j_string, JsonLexer(), Terminal256Formatter(style=JcStyle))[0:-1])
+
+        return j_string
 
     def safe_print_out(self) -> None:
-        """Safely prints JSON, YAML, or NDJSON output in both UTF-8 and ASCII systems using the unified renderer"""
-        if self.renderer is None:
-            self.renderer = self.create_renderer()
-        self.renderer.safe_print(self.data_out)
+        """Safely prints JSON or YAML output in both UTF-8 and ASCII systems"""
+        if self.yaml_output:
+            try:
+                print(self.yaml_out(), flush=self.unbuffer)
+            except UnicodeEncodeError:
+                self.ascii_only = True
+                print(self.yaml_out(), flush=self.unbuffer)
+
+        else:
+            try:
+                print(self.json_out(), flush=self.unbuffer)
+            except UnicodeEncodeError:
+                self.ascii_only = True
+                print(self.json_out(), flush=self.unbuffer)
 
     def magic_parser(self) -> None:
         """
@@ -418,13 +537,6 @@ class JcCli():
             if arg in long_options_map:
                 self.magic_options.extend(long_options_map[arg][0])
                 args_given.pop(0)
-                if arg == '--stream-buffer-limit':
-                    if args_given:
-                        try:
-                            self.stream_buffer_limit = int(args_given.pop(0))
-                        except ValueError:
-                            utils.warning_message(['--stream-buffer-limit requires an integer argument'])
-                            self.stream_buffer_limit = None
                 continue
 
             # parser found - use standard syntax
@@ -751,18 +863,13 @@ class JcCli():
                 ignore_exceptions=self.ignore_exceptions
             )
 
-            def _enriched_stream():
-                for line in result:
-                    self.data_out = line
-                    if self.meta_out:
-                        self.run_timestamp = datetime.now(timezone.utc)
-                        self.add_metadata_to_output()
-                    yield self.data_out
+            for line in result:
+                self.data_out = line
+                if self.meta_out:
+                    self.run_timestamp = datetime.now(timezone.utc)
+                    self.add_metadata_to_output()
 
-            if self.renderer is None:
-                self.renderer = self.create_renderer()
-
-            self.renderer.safe_print_iter(_enriched_stream())
+                self.safe_print_out()
 
     def standard_parse_and_print(self) -> None:
         """supports binary and UTF-8 string data"""
@@ -809,28 +916,9 @@ class JcCli():
 
         # find options if magic_parser did not find a command
         if not self.magic_found_parser:
-            args_iter = iter(self.args)
-            for opt in args_iter:
+            for opt in self.args:
                 if SLICER_RE.match(opt):
                     self.slice_str = opt
-
-                if opt == '--stream-buffer-limit':
-                    try:
-                        val = next(args_iter)
-                        self.stream_buffer_limit = int(val)
-                    except (StopIteration, ValueError):
-                        utils.warning_message([f'--stream-buffer-limit requires an integer argument'])
-                        self.stream_buffer_limit = None
-                    continue
-
-                if opt.startswith('--stream-buffer-limit='):
-                    val = opt.split('=', 1)[1]
-                    try:
-                        self.stream_buffer_limit = int(val)
-                    except ValueError:
-                        utils.warning_message([f'--stream-buffer-limit requires an integer argument. Got: {val}'])
-                        self.stream_buffer_limit = None
-                    continue
 
                 if opt in long_options_map:
                     self.options.extend(long_options_map[opt][0])
@@ -839,6 +927,7 @@ class JcCli():
                     self.options.extend(opt[1:])
 
         self.about = 'a' in self.options
+        self.doc_check = 'D' in self.options
         self.debug = 'd' in self.options
         self.verbose_debug = self.options.count('d') > 1
         self.force_color = 'C' in self.options
@@ -854,15 +943,11 @@ class JcCli():
         self.unbuffer = 'u' in self.options
         self.version_info = 'v' in self.options
         self.yaml_output = 'y' in self.options
-        self.ndjson_output = 'n' in self.options
         self.bash_comp = 'B' in self.options
         self.zsh_comp = 'Z' in self.options
 
         self.set_mono()
         self.set_custom_colors()
-
-        if self.ndjson_output:
-            self.mono = True
 
         if self.quiet:
             utils.CLI_QUIET = True
@@ -873,6 +958,11 @@ class JcCli():
         if self.about:
             self.data_out = self.about_jc()
             self.safe_print_out()
+            self.exit_clean()
+
+        if self.doc_check:
+            verbose = self.options.count('D') > 1
+            self._doc_check_report(verbose=verbose)
             self.exit_clean()
 
         if self.help_me:
@@ -927,13 +1017,6 @@ class JcCli():
                     f'{e.__class__.__name__}: {e}',
                     'If this is the correct parser, try setting the locale to C (LC_ALL=C).',
                     f'For details use the -d or -dd option. Use "jc -h --{self.parser_name}" for help.'
-                ])
-                self.exit_error()
-
-            except MemoryError as e:
-                utils.error_message([
-                    f'{self.parser_name}: Streaming buffer limit exceeded.',
-                    str(e)
                 ])
                 self.exit_error()
 

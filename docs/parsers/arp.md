@@ -137,6 +137,67 @@ Returns:
 
     List of Dictionaries. Raw or processed structured data.
 
+### Example Input
+
+```
+Address                  HWtype  HWaddress           Flags Mask            Iface
+gateway                  ether   00:50:56:f7:4a:fc   C                     ens33
+192.168.71.1             ether   00:50:56:c0:00:08   C                     ens33
+192.168.71.254           ether   00:50:56:fe:7a:b4   C                     ens33
+```
+
+### Example Output (Processed)
+
+```json
+[
+  {
+    "address": "gateway",
+    "hwtype": "ether",
+    "hwaddress": "00:50:56:f7:4a:fc",
+    "flags_mask": "C",
+    "iface": "ens33"
+  },
+  {
+    "address": "192.168.71.1",
+    "hwtype": "ether",
+    "hwaddress": "00:50:56:c0:00:08",
+    "flags_mask": "C",
+    "iface": "ens33"
+  }
+]
+```
+
+### Example Output (Raw)
+
+```json
+[
+  {
+    "address": "gateway",
+    "hwtype": "ether",
+    "hwaddress": "00:50:56:f7:4a:fc",
+    "flags_mask": "C",
+    "iface": "ens33"
+  },
+  {
+    "address": "192.168.71.1",
+    "hwtype": "ether",
+    "hwaddress": "00:50:56:c0:00:08",
+    "flags_mask": "C",
+    "iface": "ens33"
+  }
+]
+```
+
+### Platform Limitations
+
+- On AIX, bucket information lines and "There are X entries" lines are automatically skipped
+- On AIX, the interface field may be omitted for incomplete entries
+- On FreeBSD/Darwin, the `name` field is set to null if it is "?"
+
+### Common Exceptions
+
+- **ParseError**: Raised when the input format does not match any known arp output style
+
 ### Parser Information
 Compatibility:  linux, aix, freebsd, darwin
 

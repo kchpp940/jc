@@ -219,7 +219,7 @@ _jc
 ''')
 
 about_options = ['--about', '-a']
-about_mod_options = ['--pretty', '-p', '--yaml-out', '-y', '--ndjson-out', '-n', '--monochrome', '-m', '--force-color', '-C', '--stream-buffer-limit']
+about_mod_options = ['--pretty', '-p', '--yaml-out', '-y', '--monochrome', '-m', '--force-color', '-C']
 help_options = ['--help', '-h']
 special_options = ['--version', '-v', '--bash-comp', '-B', '--zsh-comp', '-Z']
 

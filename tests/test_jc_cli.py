@@ -16,8 +16,6 @@ except:
     RUAMELYAML_INSTALLED = False
 
 from jc.cli import JcCli
-from jc.cli_data import long_options_map
-from jc.renderer import OutputRenderer, OUTPUT_JSON, OUTPUT_YAML, OUTPUT_NDJSON, STREAMING_ITEM_WARN_DEFAULT
 import jc.parsers.url as url_parser
 import jc.parsers.proc as proc_parser
 
@@ -188,9 +186,7 @@ class MyTests(unittest.TestCase):
             os.environ["JC_COLORS"] = "default,default,default,default"
             cli.set_custom_colors()
             cli.data_out = test_dict
-            cli.ndjson_output = False
-            cli.yaml_output = False
-            self.assertEqual(cli.render_output(test_dict), expected_json)
+            self.assertEqual(cli.json_out(), expected_json)
 
     @unittest.skipIf(not PYGMENTS_INSTALLED, 'pygments library not installed')
     def test_cli_json_out_mono(self):
@@ -215,9 +211,7 @@ class MyTests(unittest.TestCase):
             cli.set_custom_colors()
             cli.mono = True
             cli.data_out = test_dict
-            cli.ndjson_output = False
-            cli.yaml_output = False
-            self.assertEqual(cli.render_output(test_dict), expected_json)
+            self.assertEqual(cli.json_out(), expected_json)
 
     @unittest.skipIf(not PYGMENTS_INSTALLED, 'pygments library not installed')
     def test_cli_json_out_pretty(self):
@@ -242,9 +236,7 @@ class MyTests(unittest.TestCase):
             cli.pretty = True
             cli.set_custom_colors()
             cli.data_out = test_dict
-            cli.ndjson_output = False
-            cli.yaml_output = False
-            self.assertEqual(cli.render_output(test_dict), expected_json)
+            self.assertEqual(cli.json_out(), expected_json)
 
     @unittest.skipIf(PYGMENTS_INSTALLED, 'pygments library installed')
     def test_cli_json_out_pretty_no_pygments(self):
@@ -263,9 +255,7 @@ class MyTests(unittest.TestCase):
             cli.pretty = True
             cli.set_custom_colors()
             cli.data_out = test_dict
-            cli.ndjson_output = False
-            cli.yaml_output = False
-            self.assertEqual(cli.render_output(test_dict), expected_json)
+            self.assertEqual(cli.json_out(), expected_json)
 
     @unittest.skipIf(not PYGMENTS_INSTALLED, 'pygments library not installed')
     def test_cli_yaml_out(self):
@@ -299,9 +289,7 @@ class MyTests(unittest.TestCase):
             os.environ["JC_COLORS"] = "default,default,default,default"
             cli.set_custom_colors()
             cli.data_out = test_dict
-            cli.ndjson_output = False
-            cli.yaml_output = True
-            self.assertEqual(cli.render_output(test_dict), expected_json)
+            self.assertEqual(cli.yaml_out(), expected_json)
 
     @unittest.skipIf(not RUAMELYAML_INSTALLED, 'ruamel.yaml library not installed')
     def test_cli_yaml_out_mono(self):
@@ -328,9 +316,7 @@ class MyTests(unittest.TestCase):
             cli.set_custom_colors()
             cli.mono = True
             cli.data_out = test_dict
-            cli.ndjson_output = False
-            cli.yaml_output = True
-            self.assertEqual(cli.render_output(test_dict), expected_json)
+            self.assertEqual(cli.yaml_out(), expected_json)
 
     def test_cli_about_jc(self):
         cli = JcCli()
@@ -633,372 +619,6 @@ power management:
         cli.parser_name = 'proc'
         cli.add_metadata_to_output()
         self.assertEqual(cli.data_out, expected)
-
-    def test_cli_ndjson_out_dict(self):
-        test_input = {"key1": "value1", "key2": 2, "key3": None, "key4": 3.14, "key5": True}
-        expected_output = '{"key1":"value1","key2":2,"key3":null,"key4":3.14,"key5":true}'
-        cli = JcCli()
-        cli.mono = True
-        cli.data_out = test_input
-        cli.ndjson_output = True
-        cli.yaml_output = False
-        self.assertEqual(cli.render_output(test_input), expected_output)
-
-    def test_cli_ndjson_out_list(self):
-        test_input = [{"name": "foo", "val": 1}, {"name": "bar", "val": 2}]
-        expected_output = '{"name":"foo","val":1}\n{"name":"bar","val":2}'
-        cli = JcCli()
-        cli.mono = True
-        cli.data_out = test_input
-        cli.ndjson_output = True
-        cli.yaml_output = False
-        self.assertEqual(cli.render_output(test_input), expected_output)
-
-    def test_cli_ndjson_out_empty_list(self):
-        cli = JcCli()
-        cli.mono = True
-        cli.data_out = []
-        cli.ndjson_output = True
-        cli.yaml_output = False
-        self.assertEqual(cli.render_output([]), '')
-
-    def test_cli_ndjson_out_none(self):
-        cli = JcCli()
-        cli.mono = True
-        cli.data_out = None
-        cli.ndjson_output = True
-        cli.yaml_output = False
-        self.assertEqual(cli.render_output(None), 'null')
-
-    def test_cli_ndjson_out_empty_string(self):
-        cli = JcCli()
-        cli.mono = True
-        cli.data_out = ''
-        cli.ndjson_output = True
-        cli.yaml_output = False
-        self.assertEqual(cli.render_output(''), '""')
-
-    def test_cli_ndjson_out_empty_dict(self):
-        cli = JcCli()
-        cli.mono = True
-        cli.data_out = {}
-        cli.ndjson_output = True
-        cli.yaml_output = False
-        self.assertEqual(cli.render_output({}), '{}')
-
-    def test_cli_ndjson_out_list_with_nested(self):
-        test_input = [
-            {"key1": "value1", "nested": {"a": 1}},
-            {"key1": "value2", "nested": {"a": 2}}
-        ]
-        expected_output = '{"key1":"value1","nested":{"a":1}}\n{"key1":"value2","nested":{"a":2}}'
-        cli = JcCli()
-        cli.mono = True
-        cli.data_out = test_input
-        cli.ndjson_output = True
-        cli.yaml_output = False
-        self.assertEqual(cli.render_output(test_input), expected_output)
-
-    def test_cli_ndjson_forces_mono(self):
-        cli = JcCli()
-        cli.args = ['jc', '-n', '--date']
-        cli.magic_parser()
-        cli.options.extend(cli.magic_options)
-        for opt in cli.args:
-            if opt in long_options_map:
-                cli.options.extend(long_options_map[opt][0])
-            if opt.startswith('-') and not opt.startswith('--'):
-                cli.options.extend(opt[1:])
-        cli.ndjson_output = 'n' in cli.options
-        cli.set_mono()
-        cli.set_custom_colors()
-        if cli.ndjson_output:
-            cli.mono = True
-        self.assertTrue(cli.mono)
-
-    def test_renderer_invalid_format(self):
-        with self.assertRaises(ValueError):
-            OutputRenderer(output_format='invalid')
-
-    def test_renderer_ndjson_forces_mono(self):
-        renderer = OutputRenderer(output_format=OUTPUT_NDJSON, mono=False)
-        self.assertTrue(renderer.mono)
-
-    def test_renderer_ndjson_dict(self):
-        test_input = {"key1": "value1", "key2": 2}
-        renderer = OutputRenderer(output_format=OUTPUT_NDJSON, mono=True)
-        self.assertEqual(renderer.render(test_input), '{"key1":"value1","key2":2}')
-
-    def test_renderer_ndjson_list(self):
-        test_input = [{"name": "foo"}, {"name": "bar"}]
-        renderer = OutputRenderer(output_format=OUTPUT_NDJSON, mono=True)
-        self.assertEqual(renderer.render(test_input), '{"name":"foo"}\n{"name":"bar"}')
-
-    def test_renderer_json_compact(self):
-        test_input = {"key1": "value1", "key2": 2}
-        renderer = OutputRenderer(output_format=OUTPUT_JSON, mono=True)
-        self.assertEqual(renderer.render(test_input), '{"key1":"value1","key2":2}')
-
-    def test_renderer_json_pretty(self):
-        test_input = {"key1": "value1", "key2": 2}
-        renderer = OutputRenderer(output_format=OUTPUT_JSON, pretty=True, mono=True)
-        self.assertEqual(renderer.render(test_input), '{\n  "key1": "value1",\n  "key2": 2\n}')
-
-    @unittest.skipIf(not RUAMELYAML_INSTALLED, 'ruamel.yaml library not installed')
-    def test_renderer_yaml(self):
-        test_input = {"key1": "value1", "key2": 2}
-        renderer = OutputRenderer(output_format=OUTPUT_YAML, mono=True)
-        self.assertEqual(renderer.render(test_input), '---\nkey1: value1\nkey2: 2')
-
-    def test_renderer_streaming_error_object(self):
-        error_obj = {
-            '_jc_meta': {
-                'success': False,
-                'error': 'ParseError: Invalid line',
-                'line': 'bad data'
-            }
-        }
-        renderer = OutputRenderer(output_format=OUTPUT_NDJSON, mono=True)
-        result = renderer.render(error_obj)
-        self.assertIn('_jc_meta', result)
-        self.assertIn('success', result)
-        self.assertIn('false', result)
-        self.assertIn('error', result)
-        self.assertIn('Invalid line', result)
-
-    def test_renderer_output_format_priority_ndjson_over_yaml(self):
-        cli = JcCli()
-        cli.ndjson_output = True
-        cli.yaml_output = True
-        cli.mono = True
-        cli.data_out = {"key": "val"}
-        output = cli.render_output({"key": "val"})
-        renderer = cli.create_renderer()
-        self.assertEqual(renderer.output_format, OUTPUT_NDJSON)
-
-    def test_render_iter_ndjson_streams_line_by_line(self):
-        items = [{"name": "foo"}, {"name": "bar"}, {"name": "baz"}]
-        renderer = OutputRenderer(output_format=OUTPUT_NDJSON, mono=True)
-        lines = list(renderer.render_iter(iter(items)))
-        self.assertEqual(lines, ['{"name":"foo"}', '{"name":"bar"}', '{"name":"baz"}'])
-
-    def test_render_iter_ndjson_empty(self):
-        renderer = OutputRenderer(output_format=OUTPUT_NDJSON, mono=True)
-        lines = list(renderer.render_iter(iter([])))
-        self.assertEqual(lines, [])
-
-    def test_render_iter_ndjson_single_item(self):
-        renderer = OutputRenderer(output_format=OUTPUT_NDJSON, mono=True)
-        lines = list(renderer.render_iter(iter([{"key": "val"}])))
-        self.assertEqual(lines, ['{"key":"val"}'])
-
-    def test_render_iter_json_collects_into_array(self):
-        items = [{"name": "foo"}, {"name": "bar"}]
-        renderer = OutputRenderer(output_format=OUTPUT_JSON, mono=True)
-        lines = list(renderer.render_iter(iter(items)))
-        self.assertEqual(len(lines), 1)
-        self.assertEqual(lines[0], '[{"name":"foo"},{"name":"bar"}]')
-
-    def test_render_iter_json_empty(self):
-        renderer = OutputRenderer(output_format=OUTPUT_JSON, mono=True)
-        lines = list(renderer.render_iter(iter([])))
-        self.assertEqual(len(lines), 1)
-        self.assertEqual(lines[0], '[]')
-
-    def test_render_iter_json_pretty_collects_into_array(self):
-        items = [{"name": "foo"}, {"name": "bar"}]
-        renderer = OutputRenderer(output_format=OUTPUT_JSON, pretty=True, mono=True)
-        lines = list(renderer.render_iter(iter(items)))
-        self.assertEqual(len(lines), 1)
-        self.assertIn('"name"', lines[0])
-        self.assertIn('"foo"', lines[0])
-        self.assertIn('"bar"', lines[0])
-
-    @unittest.skipIf(not RUAMELYAML_INSTALLED, 'ruamel.yaml library not installed')
-    def test_render_iter_yaml_collects_into_list(self):
-        items = [{"name": "foo"}, {"name": "bar"}]
-        renderer = OutputRenderer(output_format=OUTPUT_YAML, mono=True)
-        lines = list(renderer.render_iter(iter(items)))
-        self.assertEqual(len(lines), 1)
-        self.assertIn('name: foo', lines[0])
-        self.assertIn('name: bar', lines[0])
-
-    def test_render_iter_ndjson_is_lazy(self):
-        consumed = []
-        def lazy_items():
-            for i in range(3):
-                consumed.append(i)
-                yield {"i": i}
-
-        renderer = OutputRenderer(output_format=OUTPUT_NDJSON, mono=True)
-        gen = renderer.render_iter(lazy_items())
-        first = next(gen)
-        self.assertEqual(first, '{"i":0}')
-        self.assertEqual(len(consumed), 1)
-        second = next(gen)
-        self.assertEqual(second, '{"i":1}')
-        self.assertEqual(len(consumed), 2)
-
-    def test_render_iter_json_is_not_lazy(self):
-        consumed = []
-        def lazy_items():
-            for i in range(3):
-                consumed.append(i)
-                yield {"i": i}
-
-        renderer = OutputRenderer(output_format=OUTPUT_JSON, mono=True)
-        gen = renderer.render_iter(lazy_items())
-        first = next(gen)
-        self.assertEqual(len(consumed), 3)
-        self.assertIn('"i"', first)
-
-    def test_render_iter_json_warn_threshold(self):
-        items = [{"i": i} for i in range(5)]
-        renderer = OutputRenderer(
-            output_format=OUTPUT_JSON,
-            mono=True,
-            streaming_item_warn=3,
-            streaming_item_limit=None,
-        )
-        import io
-        from contextlib import redirect_stderr
-        stderr_capture = io.StringIO()
-        with redirect_stderr(stderr_capture):
-            lines = list(renderer.render_iter(iter(items)))
-        self.assertEqual(len(lines), 1)
-        stderr_out = stderr_capture.getvalue()
-        self.assertIn('collected 4 items', stderr_out)
-        self.assertIn('--ndjson-out', stderr_out)
-
-    def test_render_iter_json_no_warn_below_threshold(self):
-        items = [{"i": i} for i in range(3)]
-        renderer = OutputRenderer(
-            output_format=OUTPUT_JSON,
-            mono=True,
-            streaming_item_warn=10,
-            streaming_item_limit=None,
-        )
-        import io
-        from contextlib import redirect_stderr
-        stderr_capture = io.StringIO()
-        with redirect_stderr(stderr_capture):
-            lines = list(renderer.render_iter(iter(items)))
-        self.assertEqual(len(lines), 1)
-        self.assertEqual(stderr_capture.getvalue(), '')
-
-    def test_render_iter_json_limit_raises_memory_error(self):
-        items = [{"i": i} for i in range(5)]
-        renderer = OutputRenderer(
-            output_format=OUTPUT_JSON,
-            mono=True,
-            streaming_item_warn=None,
-            streaming_item_limit=3,
-        )
-        with self.assertRaises(MemoryError) as ctx:
-            list(renderer.render_iter(iter(items)))
-        self.assertIn('exceeding the limit', str(ctx.exception))
-        self.assertIn('--ndjson-out', str(ctx.exception))
-
-    def test_render_iter_ndjson_no_warn_regardless_of_threshold(self):
-        items = [{"i": i} for i in range(2000)]
-        renderer = OutputRenderer(
-            output_format=OUTPUT_NDJSON,
-            mono=True,
-            streaming_item_warn=3,
-            streaming_item_limit=5,
-        )
-        lines = list(renderer.render_iter(iter(items)))
-        self.assertEqual(len(lines), 2000)
-
-    def test_render_iter_json_warn_only_once(self):
-        items = [{"i": i} for i in range(10)]
-        renderer = OutputRenderer(
-            output_format=OUTPUT_JSON,
-            mono=True,
-            streaming_item_warn=3,
-            streaming_item_limit=None,
-        )
-        import io
-        from contextlib import redirect_stderr
-        stderr_capture = io.StringIO()
-        with redirect_stderr(stderr_capture):
-            lines = list(renderer.render_iter(iter(items)))
-        stderr_out = stderr_capture.getvalue()
-        warn_count = stderr_out.count('collected')
-        self.assertEqual(warn_count, 1)
-
-    def test_render_iter_json_limit_overrides_warn(self):
-        items = [{"i": i} for i in range(10)]
-        renderer = OutputRenderer(
-            output_format=OUTPUT_JSON,
-            mono=True,
-            streaming_item_warn=3,
-            streaming_item_limit=5,
-        )
-        with self.assertRaises(MemoryError):
-            list(renderer.render_iter(iter(items)))
-
-    def test_streaming_item_warn_default_value(self):
-        self.assertEqual(STREAMING_ITEM_WARN_DEFAULT, 1000)
-
-    def test_renderer_default_streaming_item_warn(self):
-        renderer = OutputRenderer(output_format=OUTPUT_JSON, mono=True)
-        self.assertEqual(renderer._streaming_item_warn, STREAMING_ITEM_WARN_DEFAULT)
-        self.assertIsNone(renderer._streaming_item_limit)
-
-    def test_cli_stream_buffer_limit_with_equals(self):
-        cli = JcCli()
-        cli.args = ['jc', '--csv-s', '--stream-buffer-limit=500']
-        cli.options = []
-        for opt in cli.args:
-            if opt in long_options_map:
-                cli.options.extend(long_options_map[opt][0])
-            if opt.startswith('--stream-buffer-limit='):
-                val = opt.split('=', 1)[1]
-                cli.stream_buffer_limit = int(val)
-        self.assertEqual(cli.stream_buffer_limit, 500)
-
-    def test_cli_stream_buffer_limit_zero_disables(self):
-        cli = JcCli()
-        cli.stream_buffer_limit = 0
-        cli.mono = True
-        renderer = cli.create_renderer()
-        self.assertIsNone(renderer._streaming_item_limit)
-        self.assertIsNone(renderer._streaming_item_warn)
-
-    def test_cli_stream_buffer_limit_positive_sets_limit(self):
-        cli = JcCli()
-        cli.stream_buffer_limit = 500
-        cli.mono = True
-        renderer = cli.create_renderer()
-        self.assertEqual(renderer._streaming_item_limit, 500)
-        self.assertIsNone(renderer._streaming_item_warn)
-
-    def test_cli_stream_buffer_limit_default_no_limit(self):
-        cli = JcCli()
-        cli.stream_buffer_limit = None
-        cli.mono = True
-        renderer = cli.create_renderer()
-        self.assertIsNone(renderer._streaming_item_limit)
-        self.assertEqual(renderer._streaming_item_warn, STREAMING_ITEM_WARN_DEFAULT)
-
-    def test_cli_stream_buffer_limit_enforced_in_render_iter(self):
-        items = [{"i": i} for i in range(10)]
-        cli = JcCli()
-        cli.stream_buffer_limit = 5
-        cli.mono = True
-        renderer = cli.create_renderer()
-        with self.assertRaises(MemoryError):
-            list(renderer.render_iter(iter(items)))
-
-    def test_cli_stream_buffer_limit_zero_no_error(self):
-        items = [{"i": i} for i in range(10)]
-        cli = JcCli()
-        cli.stream_buffer_limit = 0
-        cli.mono = True
-        renderer = cli.create_renderer()
-        lines = list(renderer.render_iter(iter(items)))
-        self.assertEqual(len(lines), 1)
 
 if __name__ == '__main__':
     unittest.main()

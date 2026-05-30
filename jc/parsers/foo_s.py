@@ -70,6 +70,48 @@ class info():
     deprecated = False
     hidden = False
 
+    # enhanced documentation - enables automatic sync to README, markdown, man page, and --about
+    example_input = '''\
+64 bytes from 8.8.8.8: icmp_seq=1 ttl=118 time=23.8 ms
+64 bytes from 8.8.8.8: icmp_seq=2 ttl=118 time=34.8 ms
+64 bytes from 8.8.8.8: icmp_seq=3 ttl=118 time=32.7 ms
+'''
+
+    example_output = {
+        'processed': {
+            "type": "reply",
+            "timestamp": None,
+            "bytes": 64,
+            "response_ip": "8.8.8.8",
+            "icmp_seq": 1,
+            "ttl": 118,
+            "time_ms": 23.8,
+            "duplicate": false
+        },
+        'raw': {
+            "type": "reply",
+            "timestamp": None,
+            "bytes": "64",
+            "response_ip": "8.8.8.8",
+            "icmp_seq": "1",
+            "ttl": "118",
+            "time_ms": "23.8",
+            "duplicate": false
+        }
+    }
+
+    platform_limitations = [
+        'On Windows, `time_ms` may use comma as decimal separator',
+        'On macOS, the `timestamp` field is always null'
+    ]
+
+    common_exceptions = [
+        {
+            'name': 'ParseError',
+            'description': 'Raised when a line cannot be parsed and -qq is not used'
+        }
+    ]
+
 
 __version__ = info.version
 

@@ -26,7 +26,11 @@ if sys.version_info >= (3, 8):
             "streaming": bool,
             "plugin": bool,
             "hidden": bool,
-            "deprecated": bool
+            "deprecated": bool,
+            "example_input": str,
+            "example_output": Dict[str, Any],
+            "platform_limitations": List[str],
+            "common_exceptions": List[Dict[str, str]]
         },
         total=False
     )

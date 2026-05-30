@@ -3,17 +3,16 @@ from typing import List, Dict
 
 long_options_map: Dict[str, List[str]] = {
     '--about': ['a', 'about jc'],
+    '--doc-check': ['D', 'check parser documentation integrity'],
     '--force-color': ['C', 'force color output (overrides -m)'],
     '--debug': ['d', 'debug (double for verbose debug)'],
     '--help': ['h', 'help (--help --parser_name for parser documentation)'],
     '--monochrome': ['m', 'monochrome output'],
-    '--ndjson-out': ['n', 'NDJSON output (one JSON object per line)'],
     '--meta-out': ['M', 'add metadata to output including timestamp, etc.'],
     '--pretty': ['p', 'pretty print output'],
     '--quiet': ['q', 'suppress warnings (double to ignore streaming errors)'],
     '--raw': ['r', 'raw output'],
     '--slurp': ['s', 'slurp multiple lines into an array'],
-    '--stream-buffer-limit': ['L', 'set max items for non-NDJSON streaming (0=unlimited)'],
     '--unbuffer': ['u', 'unbuffer output'],
     '--version': ['v', 'version info'],
     '--yaml-out': ['y', 'YAML output'],
@@ -60,7 +59,7 @@ old_pygments_colors: Dict[str, str] = {
 }
 
 helptext_preamble_string: str = f'''\
-jc converts the output of many commands, file-types, and strings to JSON, YAML, or NDJSON
+jc converts the output of many commands, file-types, and strings to JSON or YAML
 
 Usage:
 
