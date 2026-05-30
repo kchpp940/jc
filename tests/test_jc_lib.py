@@ -52,27 +52,27 @@ class MyTests(unittest.TestCase):
         self.assertGreaterEqual(len(jc.lib.parser_mod_list()), 80)
 
     def test_lib_parser_info_is_dict(self):
-        self.assertIsInstance(jc.lib.parser_info('csv'), dict)
+        self.assertIsInstance(jc.lib._raw_parser_info('csv'), dict)
 
     def test_lib_parser_info_csv(self):
-        self.assertTrue(jc.lib.parser_info('csv')['name'] == 'csv')
+        self.assertTrue(jc.lib._raw_parser_info('csv')['name'] == 'csv')
 
     def test_lib_all_parser_info_is_list_of_dicts(self):
-        self.assertIsInstance(jc.lib.all_parser_info(), list)
-        self.assertIsInstance(jc.lib.all_parser_info()[0], dict)
+        self.assertIsInstance(jc.lib._raw_all_parser_info(), list)
+        self.assertIsInstance(jc.lib._raw_all_parser_info()[0], dict)
 
     def test_lib_all_parser_info_contains_csv(self):
         p_list = []
-        for p in jc.lib.all_parser_info():
+        for p in jc.lib._raw_all_parser_info():
             p_list.append(p['name'])
         self.assertTrue('csv' in p_list)
 
     def test_lib_all_parser_info_length(self):
-        self.assertGreaterEqual(len(jc.lib.all_parser_info()), 80)
+        self.assertGreaterEqual(len(jc.lib._raw_all_parser_info()), 80)
 
     def test_lib_all_parser_hidden_length(self):
-        reg_length = len(jc.lib.all_parser_info())
-        hidden_length = len(jc.lib.all_parser_info(show_hidden=True))
+        reg_length = len(jc.lib._raw_all_parser_info())
+        hidden_length = len(jc.lib._raw_all_parser_info(show_hidden=True))
         self.assertGreater(hidden_length, reg_length)
 
     def test_lib_plugin_parser_mod_list_is_list(self):
@@ -113,7 +113,7 @@ class MyTests(unittest.TestCase):
 
         jc.lib.parsers = ['deprecated']
         jc.lib.get_parser = lambda x: mock_parser  # type: ignore
-        result = jc.lib.all_parser_info(show_deprecated=True)
+        result = jc.lib._raw_all_parser_info(show_deprecated=True)
 
         # reset
         jc.lib.parsers = old_parsers
@@ -143,13 +143,27 @@ class MyTests(unittest.TestCase):
 
         jc.lib.parsers = ['deprecated']
         jc.lib.get_parser = lambda x: mock_parser  # type: ignore
-        result = jc.lib.all_parser_info(show_hidden=True)
+        result = jc.lib._raw_all_parser_info(show_hidden=True)
 
         # reset
         jc.lib.parsers = old_parsers
         jc.lib.get_parser = old_get_parser
 
         self.assertEqual(len(result), 1)
+
+    def test_lib_migration_protection_parser_info(self):
+        """Accessing jc.lib.parser_info raises AttributeError with migration hint"""
+        with self.assertRaises(AttributeError) as ctx:
+            jc.lib.parser_info('csv')
+        self.assertIn('moved', str(ctx.exception))
+        self.assertIn('jc.metadata.parser_info', str(ctx.exception))
+
+    def test_lib_migration_protection_all_parser_info(self):
+        """Accessing jc.lib.all_parser_info raises AttributeError with migration hint"""
+        with self.assertRaises(AttributeError) as ctx:
+            jc.lib.all_parser_info()
+        self.assertIn('moved', str(ctx.exception))
+        self.assertIn('jc.metadata.all_parser_info', str(ctx.exception))
 
 
 if __name__ == '__main__':

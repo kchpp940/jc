@@ -2,7 +2,7 @@
 
 from string import Template
 from .cli_data import long_options_map
-from .lib import all_parser_info
+from .metadata import all_parser_info, magic_commands_dict
 
 
 bash_template = Template('''\
@@ -225,9 +225,8 @@ special_options = ['--version', '-v', '--bash-comp', '-B', '--zsh-comp', '-Z']
 
 def get_commands():
     command_list = []
-    for cmd in all_parser_info():
-        if 'magic_commands' in cmd:
-            command_list.extend(cmd['magic_commands'])
+    for cmd in magic_commands_dict():
+        command_list.append(cmd)
 
     return sorted(list(set([i.split()[0] for i in command_list])))
 

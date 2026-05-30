@@ -7,6 +7,7 @@ import sys
 import importlib
 from inspect import isfunction, signature, cleandoc
 import yapf  # type: ignore
+import jc.metadata
 
 ignore_lib_functions = [
     'cast',
@@ -64,14 +65,14 @@ for api in functions:
 footer = ''
 if 'jc.parsers.' in mod_path and not 'universal' in mod_path:
     footer = '### Parser Information\n'
-    comp = ', '.join(module.info.compatible)
-    ver = module.info.version
-    author = module.info.author
-    author_email = module.info.author_email
-    slurpable = 'slurpable' in module.info.tags
+    p_info = jc.metadata.parser_info(mod_name)
+    comp = p_info.get('compatibility_string', ', '.join(p_info.get('compatible', ['unknown'])))
+    ver = p_info.get('version', 'unknown')
+    author = p_info.get('author', 'unknown')
+    author_email = p_info.get('author_email', 'unknown')
     footer = footer + f'Compatibility:  {comp}\n\n'
     footer = footer + f'Source: [`jc/parsers/{mod_name}.py`](https://github.com/kellyjonbrazil/jc/blob/master/jc/parsers/{mod_name}.py)\n\n'
-    if slurpable:
+    if p_info.get('is_slurpable'):
         footer = footer + 'This parser can be used with the `--slurp` command-line option.\n\n'
     footer = footer + f'Version {ver} by {author} ({author_email})'
 

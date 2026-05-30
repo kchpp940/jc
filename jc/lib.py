@@ -12,6 +12,17 @@ from jc import utils
 
 __version__ = '1.25.6'
 
+
+class jc_info():
+    version: str = __version__
+    description: str = 'JSON Convert'
+    author: str = 'Kelly Brazil'
+    author_email: str = 'kellyjonbrazil@gmail.com'
+    website: str = 'https://github.com/kellyjonbrazil/jc'
+    copyright: str = '© 2019-2025 Kelly Brazil'
+    license: str = 'MIT License'
+
+
 parsers: List[str] = [
     'acpi',
     'airport',
@@ -618,22 +629,15 @@ def slurpable_parser_mod_list(
 
     return plist
 
-def parser_info(
+def _raw_parser_info(
     parser_mod_name: Union[str, ModuleType],
     documentation: bool = False
 ) -> ParserInfoType:
     """
-    Returns a dictionary that includes the parser module metadata.
+    Returns a dictionary with the raw parser module metadata (no derived fields).
 
-    Parameters:
-
-        parser_mod_name:    (string or   name of the parser module. This
-                            Module)      function will accept module_name,
-                                         cli-name, and --argument-name
-                                         variants of the module name as well
-                                         as a parser module object.
-
-        documentation:      (boolean)    include parser docstring if `True`
+    This is the minimal, raw data layer. For derived fields like
+    compatibility_string or is_slurpable, use metadata.parser_info().
     """
     parser_mod = get_parser(parser_mod_name)
     parser_mod_name = parser_mod.__name__.split('.')[-1]
@@ -658,37 +662,23 @@ def parser_info(
 
     return info_dict
 
-def all_parser_info(
+def _raw_all_parser_info(
     documentation: bool = False,
     show_hidden: bool = False,
     show_deprecated: bool = False
 ) -> List[ParserInfoType]:
     """
-    Returns a list of dictionaries that includes metadata for all parser
-    modules. By default only non-hidden, non-deprecated parsers are
-    returned.
+    Returns a list of raw metadata dictionaries for all parser modules.
 
-    Parameters:
-
-        documentation:      (boolean)    include parser docstrings if `True`
-        show_hidden:        (boolean)    also show parsers marked as hidden
-                                         in their info metadata.
-        show_deprecated:    (boolean)    also show parsers marked as
-                                         deprecated in their info metadata.
+    This is the minimal, raw data layer. For derived fields and the public API,
+    use metadata.all_parser_info().
     """
-    plist: List[str] = []
-    for p in parsers:
-        parser = get_parser(p)
-
-        if not show_hidden and _parser_is_hidden(parser):
-            continue
-
-        if not show_deprecated and _parser_is_deprecated(parser):
-            continue
-
-        plist.append(p)
-
-    p_info_list: List[ParserInfoType] = [parser_info(p, documentation=documentation) for p in plist]
+    p_info_list: List[ParserInfoType] = [
+        _raw_parser_info(p, documentation=documentation)
+        for p in parsers
+        if (show_hidden or not _parser_is_hidden(get_parser(p)))
+        and (show_deprecated or not _parser_is_deprecated(get_parser(p)))
+    ]
 
     return p_info_list
 
@@ -702,3 +692,25 @@ def get_help(parser_mod_name: Union[str, ModuleType]) -> None:
     """
     jc_parser = get_parser(parser_mod_name)
     help(jc_parser)
+
+
+def __getattr__(name: str):
+    """
+    Module-level getattr for migration protection.
+
+    Catches attempts to access the old public API (parser_info, all_parser_info)
+    and provides a clear error message pointing to the new metadata API.
+    """
+    if name == 'parser_info':
+        raise AttributeError(
+            "jc.lib.parser_info has moved to jc.metadata.parser_info (or jc.parser_info). "
+            "Use jc.metadata.parser_info() for the full metadata view including derived fields, "
+            "or jc.lib._raw_parser_info() for the internal raw-only view."
+        )
+    if name == 'all_parser_info':
+        raise AttributeError(
+            "jc.lib.all_parser_info has moved to jc.metadata.all_parser_info (or jc.all_parser_info). "
+            "Use jc.metadata.all_parser_info() for the full metadata view including derived fields, "
+            "or jc.lib._raw_all_parser_info() for the internal raw-only view."
+        )
+    raise AttributeError(f"module 'jc.lib' has no attribute '{name}'")
