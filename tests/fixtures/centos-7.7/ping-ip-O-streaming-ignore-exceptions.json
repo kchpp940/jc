@@ -12,12 +12,7 @@
     "time_ms": 0.038,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 0,
-      "line_end": 1,
-      "line_count": 2,
-      "line": "PING 127.0.0.1 (127.0.0.1) 56(84) bytes of data.",
-      "lines": "PING 127.0.0.1 (127.0.0.1) 56(84) bytes of data.\n64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=0.038 ms"
+      "success": true
     }
   },
   {
@@ -33,11 +28,7 @@
     "time_ms": 0.043,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 2,
-      "line_end": 2,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=2 ttl=64 time=0.043 ms"
+      "success": true
     }
   },
   {
@@ -53,11 +44,7 @@
     "time_ms": 0.044,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 3,
-      "line_end": 3,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=3 ttl=64 time=0.044 ms"
+      "success": true
     }
   },
   {
@@ -73,11 +60,7 @@
     "time_ms": 0.052,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 4,
-      "line_end": 4,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=4 ttl=64 time=0.052 ms"
+      "success": true
     }
   },
   {
@@ -93,11 +76,7 @@
     "time_ms": 0.08,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 5,
-      "line_end": 5,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=5 ttl=64 time=0.080 ms"
+      "success": true
     }
   },
   {
@@ -113,11 +92,7 @@
     "time_ms": 0.043,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 6,
-      "line_end": 6,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=6 ttl=64 time=0.043 ms"
+      "success": true
     }
   },
   {
@@ -133,11 +108,7 @@
     "time_ms": 0.047,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 7,
-      "line_end": 7,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=7 ttl=64 time=0.047 ms"
+      "success": true
     }
   },
   {
@@ -153,11 +124,7 @@
     "time_ms": 0.04,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 8,
-      "line_end": 8,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=8 ttl=64 time=0.040 ms"
+      "success": true
     }
   },
   {
@@ -173,11 +140,7 @@
     "time_ms": 0.052,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 9,
-      "line_end": 9,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=9 ttl=64 time=0.052 ms"
+      "success": true
     }
   },
   {
@@ -193,11 +156,7 @@
     "time_ms": 0.044,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 10,
-      "line_end": 10,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=10 ttl=64 time=0.044 ms"
+      "success": true
     }
   },
   {
@@ -213,11 +172,7 @@
     "time_ms": 0.043,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 11,
-      "line_end": 11,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=11 ttl=64 time=0.043 ms"
+      "success": true
     }
   },
   {
@@ -233,11 +188,7 @@
     "time_ms": 0.043,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 12,
-      "line_end": 12,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=12 ttl=64 time=0.043 ms"
+      "success": true
     }
   },
   {
@@ -253,11 +204,7 @@
     "time_ms": 0.05,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 13,
-      "line_end": 13,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=13 ttl=64 time=0.050 ms"
+      "success": true
     }
   },
   {
@@ -273,11 +220,7 @@
     "time_ms": 0.045,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 14,
-      "line_end": 14,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=14 ttl=64 time=0.045 ms"
+      "success": true
     }
   },
   {
@@ -293,11 +236,7 @@
     "time_ms": 0.062,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 15,
-      "line_end": 15,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=15 ttl=64 time=0.062 ms"
+      "success": true
     }
   },
   {
@@ -313,11 +252,7 @@
     "time_ms": 0.046,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 16,
-      "line_end": 16,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=16 ttl=64 time=0.046 ms"
+      "success": true
     }
   },
   {
@@ -333,11 +268,7 @@
     "time_ms": 0.046,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 17,
-      "line_end": 17,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=17 ttl=64 time=0.046 ms"
+      "success": true
     }
   },
   {
@@ -353,11 +284,7 @@
     "time_ms": 0.045,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 18,
-      "line_end": 18,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=18 ttl=64 time=0.045 ms"
+      "success": true
     }
   },
   {
@@ -373,11 +300,7 @@
     "time_ms": 0.044,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 19,
-      "line_end": 19,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=19 ttl=64 time=0.044 ms"
+      "success": true
     }
   },
   {
@@ -393,11 +316,7 @@
     "time_ms": 0.044,
     "duplicate": false,
     "_jc_meta": {
-      "success": true,
-      "line_start": 20,
-      "line_end": 20,
-      "line_count": 1,
-      "line": "64 bytes from 127.0.0.1: icmp_seq=20 ttl=64 time=0.044 ms"
+      "success": true
     }
   },
   {
@@ -417,12 +336,7 @@
     "round_trip_ms_max": 0.08,
     "round_trip_ms_stddev": 0.011,
     "_jc_meta": {
-      "success": true,
-      "line_start": 21,
-      "line_end": 24,
-      "line_count": 4,
-      "line": "",
-      "lines": "\n--- 127.0.0.1 ping statistics ---\n20 packets transmitted, 20 received, 0% packet loss, time 19070ms\nrtt min/avg/max/mdev = 0.038/0.047/0.080/0.011 ms"
+      "success": true
     }
   }
 ]

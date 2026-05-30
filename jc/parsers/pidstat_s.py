@@ -76,11 +76,9 @@ Examples:
     {"time":"1646859134","uid":"0","pid":"9","percent_usr":"0.00","perc...}
     ...
 """
-from typing import List, Dict, Iterable, Union
+from typing import List, Dict, Iterable, Union, Optional
 import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
+from jc.streaming import streaming_parser, StreamingContext
 from jc.parsers.universal import simple_table_parse
 from jc.exceptions import ParseError
 
@@ -140,12 +138,13 @@ def normalize_header(header: str) -> str:
                  .lower()
 
 
-@add_jc_meta
+@streaming_parser
 def parse(
     data: Iterable[str],
     raw: bool = False,
     quiet: bool = False,
-    ignore_exceptions: bool = False
+    ignore_exceptions: bool = False,
+    ctx: Optional[StreamingContext] = None
 ) -> Union[Iterable[Dict], tuple]:
     """
     Main text parsing generator function. Returns an iterable object.
@@ -164,14 +163,13 @@ def parse(
         Iterable of Dictionaries
     """
     jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
 
     table_list: List = []
     header: str = ''
 
     for line in data:
         try:
-            streaming_line_input_type_check(line)
+            ctx.check_line(line)
             output_line: Dict = {}
 
             if not line.strip():
@@ -181,7 +179,7 @@ def parse(
             if line.startswith('#'):
                 if len(table_list) > 1:
                     output_line = simple_table_parse(table_list)[0]
-                    yield output_line if raw else _process(output_line)
+                    yield ctx.emit(output_line, _process)
                     header = ''
 
                 header = normalize_header(line)
@@ -191,17 +189,17 @@ def parse(
             if header:
                 table_list.append(line)
                 output_line = simple_table_parse(table_list)[0]
-                yield output_line if raw else _process(output_line)
+                yield ctx.emit(output_line, _process)
                 table_list = [header]
                 continue
 
         except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
+            yield ctx.handle_exception(e, line)
 
     try:
         if len(table_list) > 1:
             output_line = simple_table_parse(table_list)[0]
-            yield output_line if raw else _process(output_line)
+            yield ctx.emit(output_line, _process)
 
     except Exception as e:
-        yield raise_or_yield(ignore_exceptions, e, str(table_list))
+        yield ctx.handle_exception(e, str(table_list))

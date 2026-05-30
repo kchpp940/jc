@@ -93,9 +93,8 @@ Examples:
 """
 import re
 import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
+from typing import Optional
+from jc.streaming import streaming_parser, StreamingContext
 from jc.exceptions import ParseError
 
 PROCS_HEADER_RE = re.compile(r'^-*procs-* ')
@@ -149,8 +148,8 @@ def _process(proc_data):
     return proc_data
 
 
-@add_jc_meta
-def parse(data, raw=False, quiet=False, ignore_exceptions=False):
+@streaming_parser
+def parse(data, raw=False, quiet=False, ignore_exceptions=False, ctx: Optional[StreamingContext] = None):
     """
     Main text parsing generator function. Returns an iterable object.
 
@@ -168,7 +167,6 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
         Iterable of Dictionaries
     """
     jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
 
     procs = None
     buff_cache = None
@@ -178,7 +176,7 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
 
     for line in data:
         try:
-            streaming_line_input_type_check(line)
+            ctx.check_line(line)
             output_line = {}
 
             # skip blank lines
@@ -262,9 +260,9 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
                 }
 
             if output_line:
-                yield output_line if raw else _process(output_line)
+                yield ctx.emit(output_line, _process)
             else:
                 raise ParseError('Not vmstat data')
 
         except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
+            yield ctx.handle_exception(e, line)

@@ -98,10 +98,9 @@ Examples:
     {"device":"sda","tps":"0.24","kb_read_s":"5.28","kb_wrtn_s":"1.10"...}
     ...
 """
+from typing import Optional
 import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
+from jc.streaming import streaming_parser, StreamingContext
 from jc.exceptions import ParseError
 import jc.parsers.universal
 
@@ -165,8 +164,8 @@ def _create_obj_list(section_list, section_name):
     return output_list
 
 
-@add_jc_meta
-def parse(data, raw=False, quiet=False, ignore_exceptions=False):
+@streaming_parser
+def parse(data, raw=False, quiet=False, ignore_exceptions=False, ctx: Optional[StreamingContext] = None):
     """
     Main text parsing generator function. Returns an iterable object.
 
@@ -184,7 +183,6 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
         Iterable of Dictionaries
     """
     jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
 
     section = ''  # either 'cpu' or 'device'
     headers = ''
@@ -193,7 +191,7 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
 
     for line in data:
         try:
-            streaming_line_input_type_check(line)
+            ctx.check_line(line)
             output_line = {}
 
             # ignore blank lines and header line
@@ -226,9 +224,9 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
                 device_list = []
 
             if output_line:
-                yield output_line if raw else _process(output_line)
+                yield ctx.emit(output_line, _process)
             else:
                 raise ParseError('Not iostat data')
 
         except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
+            yield ctx.handle_exception(e, line)

@@ -54,10 +54,11 @@ Examples:
     {"Sell":"129","List":"132","Living":"13","Rooms":"6","Beds":"3"...}
     ...
 """
+from typing import Optional
 import itertools
 import csv
 import jc.utils
-from jc.streaming import streaming_input_type_check, add_jc_meta, raise_or_yield
+from jc.streaming import streaming_parser, StreamingContext
 from jc.exceptions import ParseError
 
 
@@ -93,8 +94,8 @@ def _process(proc_data):
     return proc_data
 
 
-@add_jc_meta
-def parse(data, raw=False, quiet=False, ignore_exceptions=False):
+@streaming_parser
+def parse(data, raw=False, quiet=False, ignore_exceptions=False, ctx: Optional[StreamingContext] = None):
     """
     Main text parsing generator function. Returns an iterable object.
 
@@ -112,7 +113,6 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
         Iterable of Dictionaries
     """
     jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
 
     # convert data to an iterable in case a sequence like a list is used as input.
     # this allows the exhaustion of the input so we don't double-process later.
@@ -151,6 +151,6 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
 
     for row in reader:
         try:
-            yield row if raw else _process(row)
+            yield ctx.emit(row, _process)
         except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, str(row))
+            yield ctx.handle_exception(e, str(row))

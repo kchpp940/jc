@@ -1,19 +1,8 @@
 """jc - JSON Convert shell_completions module"""
 
 from string import Template
-from ._docgen import (
-    get_magic_commands,
-    get_all_options,
-    get_completion_parsers,
-    get_completion_parser_descriptions,
-    get_zsh_command_descriptions,
-    get_option_descriptions,
-    get_filtered_options,
-    ABOUT_OPTIONS,
-    ABOUT_MOD_OPTIONS,
-    HELP_OPTIONS,
-    SPECIAL_OPTIONS,
-)
+from .cli_data import long_options_map
+from .lib import all_parser_info
 
 
 bash_template = Template('''\
@@ -229,16 +218,93 @@ _jc() {
 _jc
 ''')
 
+about_options = ['--about', '-a']
+about_mod_options = ['--pretty', '-p', '--yaml-out', '-y', '--monochrome', '-m', '--force-color', '-C']
+help_options = ['--help', '-h']
+special_options = ['--version', '-v', '--bash-comp', '-B', '--zsh-comp', '-Z']
+
+def get_commands():
+    command_list = []
+    for cmd in all_parser_info():
+        if 'magic_commands' in cmd:
+            command_list.extend(cmd['magic_commands'])
+
+    return sorted(list(set([i.split()[0] for i in command_list])))
+
+
+def get_options():
+    options_list = []
+    for opt in long_options_map:
+        options_list.append(opt)
+        options_list.append('-' + long_options_map[opt][0])
+
+    return options_list
+
+
+def get_parsers():
+    p_list = []
+    for cmd in all_parser_info(show_hidden=True):
+        if 'argument' in cmd:
+            p_list.append(cmd['argument'])
+
+    return p_list
+
+
+def get_parsers_descriptions():
+    pd_list = []
+    for p in all_parser_info(show_hidden=True):
+        if 'description' in p:
+            pd_list.append(f"'{p['argument']}:{p['description']}'")
+
+    return pd_list
+
+
+def get_zsh_command_descriptions(command_list):
+    zsh_commands = []
+    for cmd in command_list:
+        zsh_commands.append(f"""'{cmd}:run "{cmd}" command with magic syntax.'""")
+
+    return zsh_commands
+
+
+def get_descriptions(opt_list):
+    """Return a list of options:description items."""
+    opt_desc_list = []
+
+    for item in opt_list:
+        # get long options
+        if item in long_options_map:
+            opt_desc_list.append(f"'{item}:{long_options_map[item][1]}'")
+            continue
+
+        # get short options
+        for k, v in long_options_map.items():
+            if item[1:] == v[0]:
+                opt_desc_list.append(f"'{item}:{v[1]}'")
+                continue
+
+    return opt_desc_list
+
 
 def bash_completion():
-    parsers_str = ' '.join(get_completion_parsers())
-    opts_no_special = get_filtered_options()
+    parsers_str = ' '.join(get_parsers())
+    opts_no_special = get_options()
+
+    for s_option in special_options:
+        opts_no_special.remove(s_option)
+
+    for a_option in about_options:
+        opts_no_special.remove(a_option)
+
+    for h_option in help_options:
+        opts_no_special.remove(h_option)
+
     options_str = ' '.join(opts_no_special)
-    about_options_str = ' '.join(ABOUT_OPTIONS)
-    about_mod_options_str = ' '.join(ABOUT_MOD_OPTIONS)
-    help_options_str = ' '.join(HELP_OPTIONS)
-    special_options_str = ' '.join(SPECIAL_OPTIONS)
-    commands_str = ' '.join(get_magic_commands())
+    about_options_str = ' '.join(about_options)
+    about_mod_options_str = ' '.join(about_mod_options)
+    help_options_str = ' '.join(help_options)
+    special_options_str = ' '.join(special_options)
+    commands_str = ' '.join(get_commands())
     return bash_template.substitute(
         bash_parsers=parsers_str,
         bash_special_options=special_options_str,
@@ -251,22 +317,31 @@ def bash_completion():
 
 
 def zsh_completion():
-    parsers_str = ' '.join(get_completion_parsers())
-    parsers_describe = '\n        '.join(get_completion_parser_descriptions())
-    opts_no_special = get_filtered_options()
+    parsers_str = ' '.join(get_parsers())
+    parsers_describe = '\n        '.join(get_parsers_descriptions())
+    opts_no_special = get_options()
+
+    for s_option in special_options:
+        opts_no_special.remove(s_option)
+
+    for a_option in about_options:
+        opts_no_special.remove(a_option)
+
+    for h_option in help_options:
+        opts_no_special.remove(h_option)
+
     options_str = ' '.join(opts_no_special)
-    options_describe = '\n        '.join(get_option_descriptions(opts_no_special))
-    about_options_str = ' '.join(ABOUT_OPTIONS)
-    about_options_describe = '\n        '.join(get_option_descriptions(ABOUT_OPTIONS))
-    about_mod_options_str = ' '.join(ABOUT_MOD_OPTIONS)
-    about_mod_options_describe = '\n        '.join(get_option_descriptions(ABOUT_MOD_OPTIONS))
-    help_options_str = ' '.join(HELP_OPTIONS)
-    help_options_describe = '\n        '.join(get_option_descriptions(HELP_OPTIONS))
-    special_options_str = ' '.join(SPECIAL_OPTIONS)
-    special_options_describe = '\n        '.join(get_option_descriptions(SPECIAL_OPTIONS))
-    commands = get_magic_commands()
-    commands_str = ' '.join(commands)
-    commands_describe = '\n        '.join(get_zsh_command_descriptions(commands))
+    options_describe = '\n        '.join(get_descriptions(opts_no_special))
+    about_options_str = ' '.join(about_options)
+    about_options_describe = '\n        '.join(get_descriptions(about_options))
+    about_mod_options_str = ' '.join(about_mod_options)
+    about_mod_options_describe = '\n        '.join(get_descriptions(about_mod_options))
+    help_options_str = ' '.join(help_options)
+    help_options_describe = '\n        '.join(get_descriptions(help_options))
+    special_options_str = ' '.join(special_options)
+    special_options_describe = '\n        '.join(get_descriptions(special_options))
+    commands_str = ' '.join(get_commands())
+    commands_describe = '\n        '.join(get_zsh_command_descriptions(get_commands()))
 
     return zsh_template.substitute(
         zsh_parsers=parsers_str,

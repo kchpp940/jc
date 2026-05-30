@@ -162,11 +162,9 @@ Examples:
     {"time":"11:24:50","uptime":"2 min","users":"2","load_1m":"0.23","lo...}
     ...
 """
-from typing import List, Dict, Set, Iterable, Union
+from typing import List, Dict, Set, Iterable, Union, Optional
 import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
+from jc.streaming import streaming_parser, StreamingContext
 from jc.exceptions import ParseError
 from jc.parsers.uptime import parse as parse_uptime
 from jc.parsers.universal import sparse_table_parse as parse_table
@@ -403,12 +401,13 @@ def _process(proc_data: Dict, idx=0, quiet=False) -> Dict:
     return proc_data
 
 
-@add_jc_meta
+@streaming_parser
 def parse(
     data: Iterable[str],
     raw: bool = False,
     quiet: bool = False,
-    ignore_exceptions: bool = False
+    ignore_exceptions: bool = False,
+    ctx: Optional[StreamingContext] = None
 ) -> Union[Iterable[Dict], tuple]:
     """
     Main text parsing generator function. Returns an iterable object.
@@ -428,7 +427,6 @@ def parse(
         Iterable of Dictionaries
     """
     jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
 
     output_line: Dict = {}
     process_table = False
@@ -437,13 +435,13 @@ def parse(
 
     for line in data:
         try:
-            streaming_line_input_type_check(line)
+            ctx.check_line(line)
 
             if line.startswith('top - '):
                 if output_line:
                     if process_list:
                         output_line['processes'] = parse_table(process_list)
-                    yield output_line if raw else _process(output_line, idx=idx, quiet=quiet)
+                    yield ctx.emit(output_line, lambda d: _process(d, idx=idx, quiet=quiet))
                     process_table = False
                     process_list = []
                     output_line = {}
@@ -526,11 +524,11 @@ def parse(
             raise ParseError('Not top data')
 
         except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
+            yield ctx.handle_exception(e, line)
 
     if output_line:
         if process_list:
             output_line['processes'] = parse_table(process_list)
-        yield output_line if raw else _process(output_line, idx=idx, quiet=quiet)
+        yield ctx.emit(output_line, lambda d: _process(d, idx=idx, quiet=quiet))
 
     return None
