@@ -49,7 +49,7 @@ $ snapcraft
 ## How to install local snap file
 
 ```bash
-$ snap install --dangerous ./jc_1.25.6_amd64.snap
+$ snap install --dangerous ./jc_{{ version }}_amd64.snap
 ```
 
 ## How to use `jc` with plugins

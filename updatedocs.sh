@@ -1,9 +1,14 @@
 #!/bin/bash
-# Update all documentation (README.md, Man page, Doc files)
+# Update all documentation (README.md, README-snap.md, Man page, Doc files)
 
 (
     echo === Building README.md
     ./readmegen.py && echo "++++ README.md build successful" || echo "---- README.md build failed"
+) &
+
+(
+    echo === Building README-snap.md
+    ./readmesnapgen.py && echo "++++ README-snap.md build successful" || echo "---- README-snap.md build failed"
 ) &
 
 (

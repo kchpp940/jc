@@ -135,7 +135,9 @@ from typing import Optional
 
 import jc.utils
 from jc.exceptions import ParseError
-from jc.streaming import streaming_parser, StreamingContext
+from jc.streaming import (
+    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
+)
 from .traceroute import RE_HEADER, RE_HOP, RE_HEADER_HOPS_BYTES, _Hop, _loads, _process, _serialize_hop
 
 
@@ -181,8 +183,17 @@ SOFTWARE.
 '''
 
 
-@streaming_parser
-def parse(data, raw=False, quiet=False, ignore_exceptions=False, ctx: Optional[StreamingContext] = None):
+def _hop_output(hop: _Hop, raw: bool):
+    raw_output = {
+        'type': 'hop',
+        **_serialize_hop(hop),
+    }
+
+    return raw_output if raw else _process(raw_output)
+
+
+@add_jc_meta
+def parse(data, raw=False, quiet=False, ignore_exceptions=False):
     """
     Main text parsing function. Returns an iterable object.
 
@@ -200,14 +211,16 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False, ctx: Optional[S
         Iterable of Dictionaries
     """
     jc.utils.compatibility(__name__, info.compatible, quiet)
+    streaming_input_type_check(data)
 
+    # Estimated number of probe packets per hop. See `traceroute -q` on Linux, for example.
     queries = 0
     # Accumulated hop across multiple lines
     hop_cache: Optional[_Hop] = None
 
     for line in data:  # type: str
         try:
-            ctx.check_line(line)
+            streaming_line_input_type_check(line)
 
             if RE_HEADER.search(line):
                 tr = _loads(line, quiet)
@@ -219,7 +232,7 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False, ctx: Optional[S
                     'data_bytes': tr.data_bytes
                 }
 
-                yield ctx.emit(raw_output, _process)
+                yield raw_output if raw else _process(raw_output)
 
             else:
                 m = RE_HOP.match(line)
@@ -247,7 +260,7 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False, ctx: Optional[S
                 else:
                     # if the hop index is found, yield the previous hop
                     if hop_cache:
-                        yield ctx.emit({'type': 'hop', **_serialize_hop(hop_cache)}, _process)
+                        yield _hop_output(hop_cache, raw)
                         hop_cache = None
 
                     # Specify quiet=True to suppress the 'No header row found' warning for hop lines
@@ -258,7 +271,7 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False, ctx: Optional[S
                     hop_cache = tr.hops[0]
 
         except Exception as e:
-            yield ctx.handle_exception(e, line)
+            yield raise_or_yield(ignore_exceptions, e, line)
 
     if hop_cache:
-        yield ctx.emit({'type': 'hop', **_serialize_hop(hop_cache)}, _process)
+        yield _hop_output(hop_cache, raw)

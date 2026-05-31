@@ -74,8 +74,10 @@ Examples:
 """
 import shlex
 import jc.utils
-from jc.streaming import streaming_parser, StreamingContext
-from typing import Dict, Iterable, Optional
+from jc.streaming import (
+    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
+)
+from typing import Dict, Iterable
 from jc.jc_types import JSONDictType, StreamingOutputType
 from jc.exceptions import ParseError
 
@@ -129,13 +131,12 @@ def _process(proc_data: JSONDictType) -> JSONDictType:
     return proc_data
 
 
-@streaming_parser
+@add_jc_meta
 def parse(
     data: Iterable[str],
     raw: bool = False,
     quiet: bool = False,
-    ignore_exceptions: bool = False,
-    ctx: Optional[StreamingContext] = None
+    ignore_exceptions: bool = False
 ) -> StreamingOutputType:
     """
     Main text parsing generator function. Returns an iterable object.
@@ -154,13 +155,14 @@ def parse(
         Iterable of Dictionaries
     """
     jc.utils.compatibility(__name__, info.compatible, quiet)
+    streaming_input_type_check(data)
 
     output_line: Dict = {}
     os_type = ''
 
     for line in data:
         try:
-            ctx.check_line(line)
+            streaming_line_input_type_check(line)
             line = line.rstrip()
 
             # ignore blank lines
@@ -176,7 +178,7 @@ def parse(
                 # line #1
                 if line.startswith('  File: '):
                     if output_line:
-                        yield ctx.emit(output_line, _process)
+                        yield output_line if raw else _process(output_line)
 
                     output_line = {}
                     line_list = line.split(maxsplit=1)
@@ -282,16 +284,16 @@ def parse(
                 }
 
                 if output_line:
-                    yield ctx.emit(output_line, _process)
+                    yield output_line if raw else _process(output_line)
                     output_line = {}
 
         except Exception as e:
-            yield ctx.handle_exception(e, line)
+            yield raise_or_yield(ignore_exceptions, e, line)
 
     # gather final item
     try:
         if output_line:
-            yield ctx.emit(output_line, _process)
+            yield output_line if raw else _process(output_line)
 
     except Exception as e:
-        yield ctx.handle_exception(e, '')
+        yield raise_or_yield(ignore_exceptions, e, '')

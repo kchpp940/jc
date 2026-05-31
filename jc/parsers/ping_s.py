@@ -79,9 +79,10 @@ Examples:
 import re
 import string
 import ipaddress
-from typing import Optional
 import jc.utils
-from jc.streaming import streaming_parser, StreamingContext
+from jc.streaming import (
+    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
+)
 from jc.exceptions import ParseError
 
 
@@ -564,8 +565,8 @@ def _linux_parse(line, s):
         return output_line
 
 
-@streaming_parser
-def parse(data, raw=False, quiet=False, ignore_exceptions=False, ctx: Optional[StreamingContext] = None):
+@add_jc_meta
+def parse(data, raw=False, quiet=False, ignore_exceptions=False):
     """
     Main text parsing generator function. Returns an iterable object.
 
@@ -583,13 +584,14 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False, ctx: Optional[S
         Iterable of Dictionaries
     """
     jc.utils.compatibility(__name__, info.compatible, quiet)
+    streaming_input_type_check(data)
 
     s = _state()
     summary_obj = {}
 
     for line in data:
         try:
-            ctx.check_line(line)
+            streaming_line_input_type_check(line)
             output_line = {}
 
             # skip blank lines
@@ -640,16 +642,16 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False, ctx: Optional[S
 
             # yield the output line if it has data
             if output_line:
-                yield ctx.emit(output_line, _process)
+                yield output_line if raw else _process(output_line)
             else:
                 continue
 
         except Exception as e:
-            yield ctx.handle_exception(e, line)
+            yield raise_or_yield(ignore_exceptions, e, line)
 
     # yield summary, if it exists
     try:
         if summary_obj:
-            yield ctx.emit(summary_obj, _process)
+            yield summary_obj if raw else _process(summary_obj)
     except Exception as e:
-        yield ctx.handle_exception(e, str(summary_obj))
+        yield raise_or_yield(ignore_exceptions, e, str(summary_obj))

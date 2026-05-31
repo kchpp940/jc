@@ -85,10 +85,12 @@ Examples:
     {"deviceVendor":"Trend Micro","deviceProduct":"Deep Security Agent"...}
     ...
 """
-from typing import Dict, Iterable, Union, Optional
+from typing import Dict, Iterable, Union
 import re
 import jc.utils
-from jc.streaming import streaming_parser, StreamingContext
+from jc.streaming import (
+    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
+)
 from jc.exceptions import ParseError
 from jc.parsers.cef import _pycef_parse
 
@@ -264,13 +266,12 @@ def _process(proc_data: Dict) -> Dict:
     return proc_data
 
 
-@streaming_parser
+@add_jc_meta
 def parse(
     data: Iterable[str],
     raw: bool = False,
     quiet: bool = False,
-    ignore_exceptions: bool = False,
-    ctx: Optional[StreamingContext] = None
+    ignore_exceptions: bool = False
 ) -> Union[Iterable[Dict], tuple]:
     """
     Main text parsing generator function. Returns an iterable object.
@@ -290,10 +291,11 @@ def parse(
         Iterable of Dictionaries
     """
     jc.utils.compatibility(__name__, info.compatible, quiet)
+    streaming_input_type_check(data)
 
     for line in data:
         try:
-            ctx.check_line(line)
+            streaming_line_input_type_check(line)
             output_line: Dict = {}
 
             #skip blank lines
@@ -314,7 +316,7 @@ def parse(
                     )
 
             if output_line:
-                yield ctx.emit(output_line, _process)
+                yield output_line if raw else _process(output_line)
 
         except Exception as e:
-            yield ctx.handle_exception(e, line)
+            yield raise_or_yield(ignore_exceptions, e, line)

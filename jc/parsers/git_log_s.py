@@ -79,10 +79,12 @@ Examples:
     ...
 """
 import re
-from typing import List, Dict, Any, Iterable, Union, Optional
+from typing import List, Dict, Any, Iterable, Union
 import jc.utils
 from jc.parsers.git_log import _parse_name_email
-from jc.streaming import streaming_parser, StreamingContext
+from jc.streaming import (
+    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
+)
 from jc.exceptions import ParseError
 
 
@@ -149,13 +151,12 @@ def _is_commit_hash(hash_string: str) -> bool:
     return False
 
 
-@streaming_parser
+@add_jc_meta
 def parse(
     data: Iterable[str],
     raw: bool = False,
     quiet: bool = False,
-    ignore_exceptions: bool = False,
-    ctx: Optional[StreamingContext] = None
+    ignore_exceptions: bool = False
 ) -> Union[Iterable[Dict], tuple]:
     """
     Main text parsing generator function. Returns an iterable object.
@@ -175,6 +176,7 @@ def parse(
         Iterable of Dictionaries
     """
     jc.utils.compatibility(__name__, info.compatible, quiet)
+    streaming_input_type_check(data)
 
     output_line: Dict = {}
     message_lines: List[str] = []
@@ -183,7 +185,7 @@ def parse(
 
     for line in data:
         try:
-            ctx.check_line(line)
+            streaming_line_input_type_check(line)
 
             if line == '' or line == '\n':
                 continue
@@ -199,7 +201,7 @@ def parse(
                     if file_stats_list:
                         output_line['stats']['file_stats'] = file_stats_list
 
-                    yield ctx.emit(output_line, _process)
+                    yield output_line if raw else _process(output_line)
 
                     output_line = {}
                     message_lines = []
@@ -223,7 +225,7 @@ def parse(
                     if file_stats_list:
                         output_line['stats']['file_stats'] = file_stats_list
 
-                    yield ctx.emit(output_line, _process)
+                    yield output_line if raw else _process(output_line)
 
                     output_line = {}
                     message_lines = []
@@ -295,7 +297,7 @@ def parse(
             raise ParseError('Not git_log_s data')
 
         except Exception as e:
-            yield ctx.handle_exception(e, line)
+            yield raise_or_yield(ignore_exceptions, e, line)
 
     try:
         if output_line:
@@ -308,7 +310,7 @@ def parse(
             if file_stats_list:
                 output_line['stats']['file_stats'] = file_stats_list
 
-            yield ctx.emit(output_line, _process)
+            yield output_line if raw else _process(output_line)
 
     except Exception as e:
-        yield ctx.handle_exception(e, line)
+        yield raise_or_yield(ignore_exceptions, e, line)

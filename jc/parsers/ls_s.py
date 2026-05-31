@@ -68,9 +68,10 @@ Examples:
     ...
 """
 import re
-from typing import Optional
 import jc.utils
-from jc.streaming import streaming_parser, StreamingContext
+from jc.streaming import (
+    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
+)
 from jc.exceptions import ParseError
 
 
@@ -116,8 +117,8 @@ def _process(proc_data):
     return proc_data
 
 
-@streaming_parser
-def parse(data, raw=False, quiet=False, ignore_exceptions=False, ctx: Optional[StreamingContext] = None):
+@add_jc_meta
+def parse(data, raw=False, quiet=False, ignore_exceptions=False):
     """
     Main text parsing generator function. Returns an iterable object.
 
@@ -135,12 +136,13 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False, ctx: Optional[S
         Iterable of Dictionaries
     """
     jc.utils.compatibility(__name__, info.compatible, quiet)
+    streaming_input_type_check(data)
 
     parent = ''
 
     for line in data:
         try:
-            ctx.check_line(line)
+            streaming_line_input_type_check(line)
 
             # skip line if it starts with 'total 1234'
             if re.match(r'total [0-9]+', line):
@@ -185,7 +187,7 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False, ctx: Optional[S
             output_line['size'] = parsed_line[4]
             output_line['date'] = ' '.join(parsed_line[5:8])
 
-            yield ctx.emit(output_line, _process)
+            yield output_line if raw else _process(output_line)
 
         except Exception as e:
-            yield ctx.handle_exception(e, line)
+            yield raise_or_yield(ignore_exceptions, e, line)
