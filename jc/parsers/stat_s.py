@@ -74,11 +74,8 @@ Examples:
 """
 import shlex
 import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
-from typing import Dict, Iterable
-from jc.jc_types import JSONDictType, StreamingOutputType
+from jc.streaming import streaming_parser
+from jc.jc_types import JSONDictType
 from jc.exceptions import ParseError
 
 
@@ -131,13 +128,12 @@ def _process(proc_data: JSONDictType) -> JSONDictType:
     return proc_data
 
 
-@add_jc_meta
-def parse(
-    data: Iterable[str],
-    raw: bool = False,
-    quiet: bool = False,
-    ignore_exceptions: bool = False
-) -> StreamingOutputType:
+def _init_state():
+    return {'output_line': {}, 'os_type': ''}
+
+
+@streaming_parser(info, _process, _init_state, has_final_yield=True)
+def parse(line, state, raw, quiet):
     """
     Main text parsing generator function. Returns an iterable object.
 
@@ -154,146 +150,113 @@ def parse(
 
         Iterable of Dictionaries
     """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
+    if line is None:
+        if state['output_line']:
+            result = state['output_line']
+            state['output_line'] = {}
+            return result
+        return None
 
-    output_line: Dict = {}
-    os_type = ''
+    line = line.rstrip()
+    if not line.strip():
+        return None
 
-    for line in data:
-        try:
-            streaming_line_input_type_check(line)
-            line = line.rstrip()
+    if line.startswith('  File: '):
+        state['os_type'] = 'linux'
+    os_type = state['os_type']
 
-            # ignore blank lines
-            if not line.strip():
-                continue
+    if os_type == 'linux':
+        if line.startswith('  File: '):
+            result = None
+            if state['output_line']:
+                result = state['output_line']
+            state['output_line'] = {}
+            line_list = line.split(maxsplit=1)
+            state['output_line']['file'] = line_list[1]
+            if ' -> ' in state['output_line']['file']:
+                filename = state['output_line']['file'].split(' -> ')[0].strip('\u2018').rstrip('\u2019')
+                link = state['output_line']['file'].split(' -> ')[1].strip('\u2018').rstrip('\u2019')
+                state['output_line']['file'] = filename
+                state['output_line']['link_to'] = link
+            else:
+                filename = state['output_line']['file'].split(' -> ')[0].strip('\u2018').rstrip('\u2019')
+                state['output_line']['file'] = filename
+            return result
 
-            # linux output
-            if line.startswith('  File: '):
-                os_type = 'linux'
+        if line.startswith('  Size: '):
+            line_list = line.split(maxsplit=7)
+            state['output_line']['size'] = line_list[1]
+            state['output_line']['blocks'] = line_list[3]
+            state['output_line']['io_blocks'] = line_list[6]
+            state['output_line']['type'] = line_list[7]
+            return None
 
-            if os_type == 'linux':
-                # stats output contains 9 lines
-                # line #1
-                if line.startswith('  File: '):
-                    if output_line:
-                        yield output_line if raw else _process(output_line)
+        if line.startswith('Device: '):
+            line_list = line.split()
+            state['output_line']['device'] = line_list[1]
+            state['output_line']['inode'] = line_list[3]
+            state['output_line']['links'] = line_list[5]
+            return None
 
-                    output_line = {}
-                    line_list = line.split(maxsplit=1)
-                    output_line['file'] = line_list[1]
+        if line.startswith('Access: ('):
+            line = line.replace('(', ' ').replace(')', ' ').replace('/', ' ')
+            line_list = line.split()
+            state['output_line']['access'] = line_list[1]
+            state['output_line']['flags'] = line_list[2]
+            state['output_line']['uid'] = line_list[4]
+            state['output_line']['user'] = line_list[5]
+            state['output_line']['gid'] = line_list[7]
+            state['output_line']['group'] = line_list[8]
+            return None
 
-                    # populate link_to field if -> found
-                    if ' -> ' in output_line['file']:
-                        filename = output_line['file'].split(' -> ')[0].strip('\u2018').rstrip('\u2019')
-                        link = output_line['file'].split(' -> ')[1].strip('\u2018').rstrip('\u2019')
-                        output_line['file'] = filename
-                        output_line['link_to'] = link
-                    else:
-                        filename = output_line['file'].split(' -> ')[0].strip('\u2018').rstrip('\u2019')
-                        output_line['file'] = filename
+        if line.startswith('Context: '):
+            return None
 
-                    continue
+        if line.startswith('Access: 2'):
+            line_list = line.split(maxsplit=1)
+            state['output_line']['access_time'] = line_list[1]
+            return None
 
-                # line #2
-                if line.startswith('  Size: '):
-                    line_list = line.split(maxsplit=7)
-                    output_line['size'] = line_list[1]
-                    output_line['blocks'] = line_list[3]
-                    output_line['io_blocks'] = line_list[6]
-                    output_line['type'] = line_list[7]
-                    continue
+        if line.startswith('Modify: '):
+            line_list = line.split(maxsplit=1)
+            state['output_line']['modify_time'] = line_list[1]
+            return None
 
-                # line #3
-                if line.startswith('Device: '):
-                    line_list = line.split()
-                    output_line['device'] = line_list[1]
-                    output_line['inode'] = line_list[3]
-                    output_line['links'] = line_list[5]
-                    continue
+        if line.startswith('Change: '):
+            line_list = line.split(maxsplit=1)
+            state['output_line']['change_time'] = line_list[1]
+            return None
 
-                # line #4
-                if line.startswith('Access: ('):
-                    line = line.replace('(', ' ').replace(')', ' ').replace('/', ' ')
-                    line_list = line.split()
-                    output_line['access'] = line_list[1]
-                    output_line['flags'] = line_list[2]
-                    output_line['uid'] = line_list[4]
-                    output_line['user'] = line_list[5]
-                    output_line['gid'] = line_list[7]
-                    output_line['group'] = line_list[8]
-                    continue
+        if line.startswith(' Birth: '):
+            line_list = line.split(maxsplit=1)
+            state['output_line']['birth_time'] = line_list[1]
+            return None
 
-                # line #5
-                # not implemented
-                if line.startswith('Context: '):
-                    continue
+        raise ParseError('Not stat data')
 
-                # line #6
-                if line.startswith('Access: 2'):
-                    line_list = line.split(maxsplit=1)
-                    output_line['access_time'] = line_list[1]
-                    continue
+    if os_type != 'linux':
+        value = shlex.split(line)
+        if not value[0].isdigit() or not value[1].isdigit():
+            raise ParseError('Not stat data')
+        output_line = {
+            'file': ' '.join(value[15:]),
+            'unix_device': value[0],
+            'inode': value[1],
+            'flags': value[2],
+            'links': value[3],
+            'user': value[4],
+            'group': value[5],
+            'rdev': value[6],
+            'size': value[7],
+            'access_time': value[8],
+            'modify_time': value[9],
+            'change_time': value[10],
+            'birth_time': value[11],
+            'block_size': value[12],
+            'blocks': value[13],
+            'unix_flags': value[14]
+        }
+        state['output_line'] = {}
+        return output_line
 
-                # line #7
-                if line.startswith('Modify: '):
-                    line_list = line.split(maxsplit=1)
-                    output_line['modify_time'] = line_list[1]
-                    continue
-
-                # line #8
-                if line.startswith('Change: '):
-                    line_list = line.split(maxsplit=1)
-                    output_line['change_time'] = line_list[1]
-                    continue
-
-                # line #9
-                if line.startswith(' Birth: '):
-                    line_list = line.split(maxsplit=1)
-                    output_line['birth_time'] = line_list[1]
-                    continue
-
-                # catch non-stat data
-                raise ParseError('Not stat data')
-
-            # FreeBSD/OSX output
-            if os_type != 'linux':
-                value = shlex.split(line)
-
-                if not value[0].isdigit() or not value[1].isdigit():
-                    raise ParseError('Not stat data')
-
-                output_line = {
-                    'file': ' '.join(value[15:]),
-                    'unix_device': value[0],
-                    'inode': value[1],
-                    'flags': value[2],
-                    'links': value[3],
-                    'user': value[4],
-                    'group': value[5],
-                    'rdev': value[6],
-                    'size': value[7],
-                    'access_time': value[8],
-                    'modify_time': value[9],
-                    'change_time': value[10],
-                    'birth_time': value[11],
-                    'block_size': value[12],
-                    'blocks': value[13],
-                    'unix_flags': value[14]
-                }
-
-                if output_line:
-                    yield output_line if raw else _process(output_line)
-                    output_line = {}
-
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
-
-    # gather final item
-    try:
-        if output_line:
-            yield output_line if raw else _process(output_line)
-
-    except Exception as e:
-        yield raise_or_yield(ignore_exceptions, e, '')
+    raise ParseError('Not stat data')

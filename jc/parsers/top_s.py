@@ -162,11 +162,9 @@ Examples:
     {"time":"11:24:50","uptime":"2 min","users":"2","load_1m":"0.23","lo...}
     ...
 """
-from typing import List, Dict, Set, Iterable, Union
+from typing import List, Dict, Set
 import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
+from jc.streaming import streaming_parser, ParserState
 from jc.exceptions import ParseError
 from jc.parsers.uptime import parse as parse_uptime
 from jc.parsers.universal import sparse_table_parse as parse_table
@@ -403,13 +401,17 @@ def _process(proc_data: Dict, idx=0, quiet=False) -> Dict:
     return proc_data
 
 
-@add_jc_meta
-def parse(
-    data: Iterable[str],
-    raw: bool = False,
-    quiet: bool = False,
-    ignore_exceptions: bool = False
-) -> Union[Iterable[Dict], tuple]:
+def _init_state():
+    return {
+        'output_line': {},
+        'process_table': False,
+        'process_list': [],
+        'idx': 0
+    }
+
+
+@streaming_parser(info, _process, _init_state, has_final_yield=True)
+def parse(line, state, raw, quiet):
     """
     Main text parsing generator function. Returns an iterable object.
 
@@ -422,115 +424,104 @@ def parse(
         quiet:             (boolean)   suppress warning messages if True
         ignore_exceptions: (boolean)   ignore parsing exceptions if True
 
-
     Returns:
 
         Iterable of Dictionaries
     """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
+    output_line = state['output_line']
+    process_table = state['process_table']
+    process_list = state['process_list']
 
-    output_line: Dict = {}
-    process_table = False
-    process_list: List = []
-    idx = 0
+    if line is None:
+        if state['output_line']:
+            if state['process_list']:
+                state['output_line']['processes'] = parse_table(state['process_list'])
+            result = state['output_line']
+            state['output_line'] = {}
+            state['process_table'] = False
+            state['process_list'] = []
+            return result
+        return None
 
-    for line in data:
-        try:
-            streaming_line_input_type_check(line)
+    if line.startswith('top - '):
+        result = None
+        if state['output_line']:
+            if state['process_list']:
+                state['output_line']['processes'] = parse_table(state['process_list'])
+            result = state['output_line']
+            state['process_table'] = False
+            state['process_list'] = []
+            state['output_line'] = {}
+            state['idx'] += 1
 
-            if line.startswith('top - '):
-                if output_line:
-                    if process_list:
-                        output_line['processes'] = parse_table(process_list)
-                    yield output_line if raw else _process(output_line, idx=idx, quiet=quiet)
-                    process_table = False
-                    process_list = []
-                    output_line = {}
-                    idx += 1
+        uptime_str = line[6:]
+        state['output_line'].update(parse_uptime(uptime_str, raw=True, quiet=True))
+        return result
 
-                uptime_str = line[6:]
-                output_line.update(parse_uptime(uptime_str, raw=True, quiet=True))
-                continue
+    if line.startswith('Tasks:'):
+        line_list = line.split()
+        state['output_line'].update(
+            {
+                'tasks_total': line_list[1],
+                'tasks_running': line_list[3],
+                'tasks_sleeping': line_list[5],
+                'tasks_stopped': line_list[7],
+                'tasks_zombie': line_list[9]
+            }
+        )
+        return None
 
-            if line.startswith('Tasks:'):
-                # Tasks: 112 total,   1 running, 111 sleeping,   0 stopped,   0 zombie
-                line_list = line.split()
-                output_line.update(
-                    {
-                        'tasks_total': line_list[1],
-                        'tasks_running': line_list[3],
-                        'tasks_sleeping': line_list[5],
-                        'tasks_stopped': line_list[7],
-                        'tasks_zombie': line_list[9]
-                    }
-                )
-                continue
+    if line.startswith('%Cpu(s):'):
+        line_list = line.split()
+        state['output_line'].update(
+            {
+                'cpu_user': line_list[1],
+                'cpu_sys': line_list[3],
+                'cpu_nice': line_list[5],
+                'cpu_idle': line_list[7],
+                'cpu_wait': line_list[9],
+                'cpu_hardware': line_list[11],
+                'cpu_software': line_list[13],
+                'cpu_steal': line_list[15]
+            }
+        )
+        return None
 
-            if line.startswith('%Cpu(s):'):
-                # %Cpu(s):  5.9 us,  5.9 sy,  0.0 ni, 88.2 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
-                line_list = line.split()
-                output_line.update(
-                    {
-                        'cpu_user': line_list[1],
-                        'cpu_sys': line_list[3],
-                        'cpu_nice': line_list[5],
-                        'cpu_idle': line_list[7],
-                        'cpu_wait': line_list[9],
-                        'cpu_hardware': line_list[11],
-                        'cpu_software': line_list[13],
-                        'cpu_steal': line_list[15]
-                    }
-                )
-                continue
+    if line[1:].startswith('iB Mem :'):
+        line_list = line.split()
+        state['output_line'].update(
+            {
+                'mem_unit': line_list[0],
+                'mem_total': line_list[3],
+                'mem_free': line_list[5],
+                'mem_used': line_list[7],
+                'mem_buff_cache': line_list[9]
+            }
+        )
+        return None
 
-            if line[1:].startswith('iB Mem :'):
-                # KiB Mem :  3861332 total,  3446476 free,   216940 used,   197916 buff/cache
-                line_list = line.split()
-                output_line.update(
-                    {
-                        'mem_unit': line_list[0],
-                        'mem_total': line_list[3],
-                        'mem_free': line_list[5],
-                        'mem_used': line_list[7],
-                        'mem_buff_cache': line_list[9]
-                    }
-                )
-                continue
+    if line[1:].startswith('iB Swap:'):
+        line_list = line.split()
+        state['output_line'].update(
+            {
+                'swap_unit': line_list[0],
+                'swap_total': line_list[2],
+                'swap_free': line_list[4],
+                'swap_used': line_list[6],
+                'mem_available': line_list[8]
+            }
+        )
+        return None
 
-            if line[1:].startswith('iB Swap:'):
-                # KiB Swap:  2097148 total,  2097148 free,        0 used.  3419356 avail Mem
-                line_list = line.split()
-                output_line.update(
-                    {
-                        'swap_unit': line_list[0],
-                        'swap_total': line_list[2],
-                        'swap_free': line_list[4],
-                        'swap_used': line_list[6],
-                        'mem_available': line_list[8]
-                    }
-                )
-                continue
+    if not state['process_table'] and line.rstrip() == '':
+        state['process_table'] = True
+        return None
 
-            if not process_table and line.rstrip() == '':
-                process_table = True
-                continue
+    if state['process_table'] and not line.rstrip() == '':
+        state['process_list'].append(line.rstrip())
+        return None
 
-            if process_table and not line.rstrip() == '':
-                process_list.append(line.rstrip())
-                continue
+    if state['process_table'] and line.rstrip() == '':
+        return None
 
-            if process_table and line.rstrip() == '':
-                continue
-
-            raise ParseError('Not top data')
-
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
-
-    if output_line:
-        if process_list:
-            output_line['processes'] = parse_table(process_list)
-        yield output_line if raw else _process(output_line, idx=idx, quiet=quiet)
-
-    return None
+    raise ParseError('Not top data')

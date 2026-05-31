@@ -80,11 +80,9 @@ Examples:
     ...
 """
 import re
-from typing import Dict, Iterable, Union
+from typing import Dict, Union
 import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
+from jc.streaming import streaming_parser, ParserState
 
 class info():
     """Provides parser metadata (version, author, etc.)"""
@@ -152,13 +150,54 @@ def _process(proc_data: Dict) -> Dict:
     return proc_data
 
 
-@add_jc_meta
-def parse(
-    data: Iterable[str],
-    raw: bool = False,
-    quiet: bool = False,
-    ignore_exceptions: bool = False
-) -> Union[Iterable[Dict], tuple]:
+_update_type = {
+    '<': 'file sent',
+    '>': 'file received',
+    'c': 'local change or creation',
+    'h': 'hard link',
+    '.': 'not updated',
+    '*': 'message',
+    '+': None
+}
+
+_file_type = {
+    'f': 'file',
+    'd': 'directory',
+    'L': 'symlink',
+    'D': 'device',
+    'S': 'special file',
+    '+': None
+}
+
+_checksum_or_value_different = {'c': True, '.': False, '+': None, ' ': None, '?': None}
+_size_different = {'s': True, '.': False, '+': None, ' ': None, '?': None}
+_modification_time_different = {'t': True, '.': False, '+': None, ' ': None, '?': None}
+_permissions_different = {'p': True, '.': False, '+': None, ' ': None, '?': None}
+_owner_different = {'o': True, '.': False, '+': None, ' ': None, '?': None}
+_group_different = {'g': True, '.': False, '+': None, ' ': None, '?': None}
+_acl_different = {'a': True, '.': False, '+': None, ' ': None, '?': None}
+_extended_attribute_different = {'x': True, '.': False, '+': None, ' ': None, '?': None}
+
+_file_line_re = re.compile(r'(?P<meta>[<>ch.*][fdlDS][c.+ ?][s.+ ?][t.+ ?][p.+ ?][o.+ ?][g.+ ?][u.+ ?][a.+ ?][x.+ ?]) (?P<name>.+)')
+_file_line_mac_re = re.compile(r'(?P<meta>[<>ch.*][fdlDS][c.+ ?][s.+ ?][t.+ ?][p.+ ?][o.+ ?][g.+ ?][x.+ ?]) (?P<name>.+)')
+_stat1_line_re = re.compile(r'(sent)\s+(?P<sent>[0-9,]+)\s+(bytes)\s+(received)\s+(?P<received>[0-9,]+)\s+(bytes)\s+(?P<bytes_sec>[0-9,.]+)\s+(bytes/sec)')
+_stat2_line_re = re.compile(r'(total size is)\s+(?P<total_size>[0-9,]+)\s+(speedup is)\s+(?P<speedup>[0-9,.]+)')
+_stat1_line_simple_re = re.compile(r'(sent)\s+(?P<sent>[0-9,.TGMK]+)\s+(bytes)\s+(received)\s+(?P<received>[0-9,.TGMK]+)\s+(bytes)\s+(?P<bytes_sec>[0-9,.TGMK]+)\s+(bytes/sec)')
+_stat2_line_simple_re = re.compile(r'(total\s+size\s+is)\s+(?P<total_size>[0-9,.TGMK]+)\s+(speedup\s+is)\s+(?P<speedup>[0-9,.TGMK]+)')
+_file_line_log_re = re.compile(r'(?P<date>\d\d\d\d/\d\d/\d\d)\s+(?P<time>\d\d:\d\d:\d\d)\s+\[(?P<process>\d+)\]\s+(?P<meta>[<>ch.*][fdlDS][c.+ ?][s.+ ?][t.+ ?][p.+ ?][o.+ ?][g.+ ?][u.+ ?][a.+ ?][x.+ ?]) (?P<name>.+)')
+_file_line_log_mac_re = re.compile(r'(?P<date>\d\d\d\d/\d\d/\d\d)\s+(?P<time>\d\d:\d\d:\d\d)\s+\[(?P<process>\d+)\]\s+(?P<meta>[<>ch.*][fdlDS][c.+ ?][s.+ ?][t.+ ?][p.+ ?][o.+ ?][g.+ ?][x.+ ?]) (?P<name>.+)')
+_stat_line_log_re = re.compile(r'(?P<date>\d\d\d\d/\d\d/\d\d)\s+(?P<time>\d\d:\d\d:\d\d)\s+\[(?P<process>\d+)\]\s+sent\s+(?P<sent>[\d,]+)\s+bytes\s+received\s+(?P<received>[\d,]+)\s+bytes\s+total\s+size\s+(?P<total_size>[\d,]+)')
+_stat1_line_log_v_re = re.compile(r'(?P<date>\d\d\d\d/\d\d/\d\d)\s+(?P<time>\d\d:\d\d:\d\d)\s+\[(?P<process>\d+)]\s+total:\s+matches=(?P<matches>[\d,]+)\s+hash_hits=(?P<hash_hits>[\d,]+)\s+false_alarms=(?P<false_alarms>[\d,]+)\s+data=(?P<data>[\d,]+)')
+_stat2_line_log_v_re = re.compile(r'(?P<date>\d\d\d\d/\d\d/\d\d)\s+(?P<time>\d\d:\d\d:\d\d)\s+\[(?P<process>\d+)\]\s+sent\s+(?P<sent>[\d,]+)\s+bytes\s+received\s+(?P<received>[\d,]+)\s+bytes\s+(?P<bytes_sec>[\d,.]+)\s+bytes/sec')
+_stat3_line_log_v_re = re.compile(r'(?P<date>\d\d\d\d/\d\d/\d\d)\s+(?P<time>\d\d:\d\d:\d\d)\s+\[(?P<process>\d+)]\s+total\s+size\s+is\s+(?P<total_size>[\d,]+)\s+speedup\s+is\s+(?P<speedup>[\d,.]+)')
+
+
+def _init_state():
+    return {'summary': {}, 'process': '', 'last_process': ''}
+
+
+@streaming_parser(info, _process, _init_state, has_final_yield=True)
+def parse(line, state, raw, quiet):
     """
     Main text parsing generator function. Returns an iterable object.
 
@@ -175,316 +214,198 @@ def parse(
 
         Iterable of Dictionaries
     """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
+    summary = state['summary']
+    process = state['process']
+    last_process = state['last_process']
 
-    summary: Dict = {}
-    process: str = ''
-    last_process: str = ''
+    if line is None:
+        if state['summary']:
+            result = state['summary']
+            state['summary'] = {}
+            return result
+        return None
 
-    update_type = {
-        '<': 'file sent',
-        '>': 'file received',
-        'c': 'local change or creation',
-        'h': 'hard link',
-        '.': 'not updated',
-        '*': 'message',
-        '+': None
-    }
+    if not line.strip():
+        return None
 
-    file_type = {
-        'f': 'file',
-        'd': 'directory',
-        'L': 'symlink',
-        'D': 'device',
-        'S': 'special file',
-        '+': None
-    }
+    file_line = _file_line_re.match(line)
+    if file_line:
+        filename = file_line.group('name')
+        meta = file_line.group('meta')
+        return {
+            'type': 'file',
+            'filename': filename,
+            'metadata': meta,
+            'update_type': _update_type[meta[0]],
+            'file_type': _file_type[meta[1]],
+            'checksum_or_value_different': _checksum_or_value_different[meta[2]],
+            'size_different': _size_different[meta[3]],
+            'modification_time_different': _modification_time_different[meta[4]],
+            'permissions_different': _permissions_different[meta[5]],
+            'owner_different': _owner_different[meta[6]],
+            'group_different': _group_different[meta[7]],
+            'acl_different': _acl_different[meta[9]],
+            'extended_attribute_different': _extended_attribute_different[meta[10]]
+        }
 
-    checksum_or_value_different = {
-        'c': True,
-        '.': False,
-        '+': None,
-        ' ': None,
-        '?': None
-    }
+    file_line_mac = _file_line_mac_re.match(line)
+    if file_line_mac:
+        filename = file_line_mac.group('name')
+        meta = file_line_mac.group('meta')
+        return {
+            'type': 'file',
+            'filename': filename,
+            'metadata': meta,
+            'update_type': _update_type[meta[0]],
+            'file_type': _file_type[meta[1]],
+            'checksum_or_value_different': _checksum_or_value_different[meta[2]],
+            'size_different': _size_different[meta[3]],
+            'modification_time_different': _modification_time_different[meta[4]],
+            'permissions_different': _permissions_different[meta[5]],
+            'owner_different': _owner_different[meta[6]],
+            'group_different': _group_different[meta[7]]
+        }
 
-    size_different = {
-        's': True,
-        '.': False,
-        '+': None,
-        ' ': None,
-        '?': None
-    }
+    file_line_log = _file_line_log_re.match(line)
+    if file_line_log:
+        results = []
+        if process != last_process:
+            if state['summary']:
+                results.append(state['summary'])
+            state['last_process'] = process
+            state['summary'] = {}
+        last_process = state['last_process']
 
-    modification_time_different = {
-        't': True,
-        '.': False,
-        '+': None,
-        ' ': None,
-        '?': None
-    }
+        filename = file_line_log.group('name')
+        date = file_line_log.group('date')
+        time = file_line_log.group('time')
+        process = file_line_log.group('process')
+        meta = file_line_log.group('meta')
+        state['process'] = process
 
-    permissions_different = {
-        'p': True,
-        '.': False,
-        '+': None,
-        ' ': None,
-        '?': None
-    }
+        results.append({
+            'type': 'file',
+            'filename': filename,
+            'date': date,
+            'time': time,
+            'process': process,
+            'metadata': meta,
+            'update_type': _update_type[meta[0]],
+            'file_type': _file_type[meta[1]],
+            'checksum_or_value_different': _checksum_or_value_different[meta[2]],
+            'size_different': _size_different[meta[3]],
+            'modification_time_different': _modification_time_different[meta[4]],
+            'permissions_different': _permissions_different[meta[5]],
+            'owner_different': _owner_different[meta[6]],
+            'group_different': _group_different[meta[7]],
+            'acl_different': _acl_different[meta[9]],
+            'extended_attribute_different': _extended_attribute_different[meta[10]]
+        })
+        return results
 
-    owner_different = {
-        'o': True,
-        '.': False,
-        '+': None,
-        ' ': None,
-        '?': None
-    }
+    file_line_log_mac = _file_line_log_mac_re.match(line)
+    if file_line_log_mac:
+        results = []
+        if process != last_process:
+            if state['summary']:
+                results.append(state['summary'])
+            state['last_process'] = process
+            state['summary'] = {}
+        last_process = state['last_process']
 
-    group_different = {
-        'g': True,
-        '.': False,
-        '+': None,
-        ' ': None,
-        '?': None
-    }
+        filename = file_line_log_mac.group('name')
+        date = file_line_log_mac.group('date')
+        time = file_line_log_mac.group('time')
+        process = file_line_log_mac.group('process')
+        meta = file_line_log_mac.group('meta')
+        state['process'] = process
 
-    acl_different = {
-        'a': True,
-        '.': False,
-        '+': None,
-        ' ': None,
-        '?': None
-    }
+        results.append({
+            'type': 'file',
+            'filename': filename,
+            'date': date,
+            'time': time,
+            'process': process,
+            'metadata': meta,
+            'update_type': _update_type[meta[0]],
+            'file_type': _file_type[meta[1]],
+            'checksum_or_value_different': _checksum_or_value_different[meta[2]],
+            'size_different': _size_different[meta[3]],
+            'modification_time_different': _modification_time_different[meta[4]],
+            'permissions_different': _permissions_different[meta[5]],
+            'owner_different': _owner_different[meta[6]],
+            'group_different': _group_different[meta[7]]
+        })
+        return results
 
-    extended_attribute_different = {
-        'x': True,
-        '.': False,
-        '+': None,
-        ' ': None,
-        '?': None
-    }
+    stat1_line = _stat1_line_re.match(line)
+    if stat1_line:
+        state['summary'] = {
+            'type': 'summary',
+            'sent': stat1_line.group('sent'),
+            'received': stat1_line.group('received'),
+            'bytes_sec': stat1_line.group('bytes_sec')
+        }
+        return None
 
-    file_line_re = re.compile(r'(?P<meta>[<>ch.*][fdlDS][c.+ ?][s.+ ?][t.+ ?][p.+ ?][o.+ ?][g.+ ?][u.+ ?][a.+ ?][x.+ ?]) (?P<name>.+)')
-    file_line_mac_re = re.compile(r'(?P<meta>[<>ch.*][fdlDS][c.+ ?][s.+ ?][t.+ ?][p.+ ?][o.+ ?][g.+ ?][x.+ ?]) (?P<name>.+)')
-    stat1_line_re = re.compile(r'(sent)\s+(?P<sent>[0-9,]+)\s+(bytes)\s+(received)\s+(?P<received>[0-9,]+)\s+(bytes)\s+(?P<bytes_sec>[0-9,.]+)\s+(bytes/sec)')
-    stat2_line_re = re.compile(r'(total size is)\s+(?P<total_size>[0-9,]+)\s+(speedup is)\s+(?P<speedup>[0-9,.]+)')
+    stat2_line = _stat2_line_re.match(line)
+    if stat2_line:
+        state['summary']['total_size'] = stat2_line.group('total_size')
+        state['summary']['speedup'] = stat2_line.group('speedup')
+        return None
 
-    stat1_line_simple_re = re.compile(r'(sent)\s+(?P<sent>[0-9,.TGMK]+)\s+(bytes)\s+(received)\s+(?P<received>[0-9,.TGMK]+)\s+(bytes)\s+(?P<bytes_sec>[0-9,.TGMK]+)\s+(bytes/sec)')
-    stat2_line_simple_re = re.compile(r'(total\s+size\s+is)\s+(?P<total_size>[0-9,.TGMK]+)\s+(speedup\s+is)\s+(?P<speedup>[0-9,.TGMK]+)')
+    stat1_line_simple = _stat1_line_simple_re.match(line)
+    if stat1_line_simple:
+        state['summary'] = {
+            'type': 'summary',
+            'sent': stat1_line_simple.group('sent'),
+            'received': stat1_line_simple.group('received'),
+            'bytes_sec': stat1_line_simple.group('bytes_sec')
+        }
+        return None
 
-    file_line_log_re = re.compile(r'(?P<date>\d\d\d\d/\d\d/\d\d)\s+(?P<time>\d\d:\d\d:\d\d)\s+\[(?P<process>\d+)\]\s+(?P<meta>[<>ch.*][fdlDS][c.+ ?][s.+ ?][t.+ ?][p.+ ?][o.+ ?][g.+ ?][u.+ ?][a.+ ?][x.+ ?]) (?P<name>.+)')
-    file_line_log_mac_re = re.compile(r'(?P<date>\d\d\d\d/\d\d/\d\d)\s+(?P<time>\d\d:\d\d:\d\d)\s+\[(?P<process>\d+)\]\s+(?P<meta>[<>ch.*][fdlDS][c.+ ?][s.+ ?][t.+ ?][p.+ ?][o.+ ?][g.+ ?][x.+ ?]) (?P<name>.+)')
-    stat_line_log_re = re.compile(r'(?P<date>\d\d\d\d/\d\d/\d\d)\s+(?P<time>\d\d:\d\d:\d\d)\s+\[(?P<process>\d+)\]\s+sent\s+(?P<sent>[\d,]+)\s+bytes\s+received\s+(?P<received>[\d,]+)\s+bytes\s+total\s+size\s+(?P<total_size>[\d,]+)')
+    stat2_line_simple = _stat2_line_simple_re.match(line)
+    if stat2_line_simple:
+        state['summary']['total_size'] = stat2_line_simple.group('total_size')
+        state['summary']['speedup'] = stat2_line_simple.group('speedup')
+        return None
 
-    stat1_line_log_v_re = re.compile(r'(?P<date>\d\d\d\d/\d\d/\d\d)\s+(?P<time>\d\d:\d\d:\d\d)\s+\[(?P<process>\d+)]\s+total:\s+matches=(?P<matches>[\d,]+)\s+hash_hits=(?P<hash_hits>[\d,]+)\s+false_alarms=(?P<false_alarms>[\d,]+)\s+data=(?P<data>[\d,]+)')
-    stat2_line_log_v_re = re.compile(r'(?P<date>\d\d\d\d/\d\d/\d\d)\s+(?P<time>\d\d:\d\d:\d\d)\s+\[(?P<process>\d+)\]\s+sent\s+(?P<sent>[\d,]+)\s+bytes\s+received\s+(?P<received>[\d,]+)\s+bytes\s+(?P<bytes_sec>[\d,.]+)\s+bytes/sec')
-    stat3_line_log_v_re = re.compile(r'(?P<date>\d\d\d\d/\d\d/\d\d)\s+(?P<time>\d\d:\d\d:\d\d)\s+\[(?P<process>\d+)]\s+total\s+size\s+is\s+(?P<total_size>[\d,]+)\s+speedup\s+is\s+(?P<speedup>[\d,.]+)')
+    stat_line_log = _stat_line_log_re.match(line)
+    if stat_line_log:
+        state['summary'] = {
+            'type': 'summary',
+            'date': stat_line_log.group('date'),
+            'time': stat_line_log.group('time'),
+            'process': stat_line_log.group('process'),
+            'sent': stat_line_log.group('sent'),
+            'received': stat_line_log.group('received'),
+            'total_size': stat_line_log.group('total_size')
+        }
+        return None
 
-    for line in data:
-        try:
-            streaming_line_input_type_check(line)
-            output_line: Dict = {}
+    stat1_line_log_v = _stat1_line_log_v_re.match(line)
+    if stat1_line_log_v:
+        state['summary'] = {
+            'type': 'summary',
+            'date': stat1_line_log_v.group('date'),
+            'time': stat1_line_log_v.group('time'),
+            'process': stat1_line_log_v.group('process'),
+            'matches': stat1_line_log_v.group('matches'),
+            'hash_hits': stat1_line_log_v.group('hash_hits'),
+            'false_alarms': stat1_line_log_v.group('false_alarms'),
+            'data': stat1_line_log_v.group('data')
+        }
+        return None
 
-            # ignore blank lines
-            if not line.strip():
-                continue
+    stat2_line_log_v = _stat2_line_log_v_re.match(line)
+    if stat2_line_log_v:
+        state['summary']['sent'] = stat2_line_log_v.group('sent')
+        state['summary']['received'] = stat2_line_log_v.group('received')
+        state['summary']['bytes_sec'] = stat2_line_log_v.group('bytes_sec')
+        return None
 
-            file_line = file_line_re.match(line)
-            if file_line:
-                filename = file_line.group('name')
-                meta = file_line.group('meta')
-
-                output_line = {
-                    'type': 'file',
-                    'filename': filename,
-                    'metadata': meta,
-                    'update_type': update_type[meta[0]],
-                    'file_type': file_type[meta[1]],
-                    'checksum_or_value_different': checksum_or_value_different[meta[2]],
-                    'size_different': size_different[meta[3]],
-                    'modification_time_different': modification_time_different[meta[4]],
-                    'permissions_different': permissions_different[meta[5]],
-                    'owner_different': owner_different[meta[6]],
-                    'group_different': group_different[meta[7]],
-                    'acl_different': acl_different[meta[9]],
-                    'extended_attribute_different': extended_attribute_different[meta[10]]
-                }
-
-                yield output_line if raw else _process(output_line)
-                continue
-
-            file_line_mac = file_line_mac_re.match(line)
-            if file_line_mac:
-                filename = file_line_mac.group('name')
-                meta = file_line_mac.group('meta')
-
-                output_line = {
-                    'type': 'file',
-                    'filename': filename,
-                    'metadata': meta,
-                    'update_type': update_type[meta[0]],
-                    'file_type': file_type[meta[1]],
-                    'checksum_or_value_different': checksum_or_value_different[meta[2]],
-                    'size_different': size_different[meta[3]],
-                    'modification_time_different': modification_time_different[meta[4]],
-                    'permissions_different': permissions_different[meta[5]],
-                    'owner_different': owner_different[meta[6]],
-                    'group_different': group_different[meta[7]]
-                }
-
-                yield output_line if raw else _process(output_line)
-                continue
-
-            file_line_log = file_line_log_re.match(line)
-            if file_line_log:
-                if process != last_process:
-                    if summary:
-                        yield output_line if raw else _process(output_line)
-                    last_process = process
-                    summary = {}
-
-                filename = file_line_log.group('name')
-                date = file_line_log.group('date')
-                time = file_line_log.group('time')
-                process = file_line_log.group('process')
-                meta = file_line_log.group('meta')
-
-                output_line = {
-                    'type': 'file',
-                    'filename': filename,
-                    'date': date,
-                    'time': time,
-                    'process': process,
-                    'metadata': meta,
-                    'update_type': update_type[meta[0]],
-                    'file_type': file_type[meta[1]],
-                    'checksum_or_value_different': checksum_or_value_different[meta[2]],
-                    'size_different': size_different[meta[3]],
-                    'modification_time_different': modification_time_different[meta[4]],
-                    'permissions_different': permissions_different[meta[5]],
-                    'owner_different': owner_different[meta[6]],
-                    'group_different': group_different[meta[7]],
-                    'acl_different': acl_different[meta[9]],
-                    'extended_attribute_different': extended_attribute_different[meta[10]]
-                }
-
-                yield output_line if raw else _process(output_line)
-                continue
-
-            file_line_log_mac = file_line_log_mac_re.match(line)
-            if file_line_log_mac:
-                if process != last_process:
-                    if summary:
-                        yield output_line if raw else _process(output_line)
-                    last_process = process
-                    summary = {}
-
-                filename = file_line_log_mac.group('name')
-                date = file_line_log_mac.group('date')
-                time = file_line_log_mac.group('time')
-                process = file_line_log_mac.group('process')
-                meta = file_line_log_mac.group('meta')
-
-                output_line = {
-                    'type': 'file',
-                    'filename': filename,
-                    'date': date,
-                    'time': time,
-                    'process': process,
-                    'metadata': meta,
-                    'update_type': update_type[meta[0]],
-                    'file_type': file_type[meta[1]],
-                    'checksum_or_value_different': checksum_or_value_different[meta[2]],
-                    'size_different': size_different[meta[3]],
-                    'modification_time_different': modification_time_different[meta[4]],
-                    'permissions_different': permissions_different[meta[5]],
-                    'owner_different': owner_different[meta[6]],
-                    'group_different': group_different[meta[7]]
-                }
-
-                yield output_line if raw else _process(output_line)
-                continue
-
-            stat1_line = stat1_line_re.match(line)
-            if stat1_line:
-                summary = {
-                    'type': 'summary',
-                    'sent': stat1_line.group('sent'),
-                    'received': stat1_line.group('received'),
-                    'bytes_sec': stat1_line.group('bytes_sec')
-                }
-                continue
-
-            stat2_line = stat2_line_re.match(line)
-            if stat2_line:
-                summary['total_size'] = stat2_line.group('total_size')
-                summary['speedup'] = stat2_line.group('speedup')
-                continue
-
-            stat1_line_simple = stat1_line_simple_re.match(line)
-            if stat1_line_simple:
-                summary = {
-                    'type': 'summary',
-                    'sent': stat1_line_simple.group('sent'),
-                    'received': stat1_line_simple.group('received'),
-                    'bytes_sec': stat1_line_simple.group('bytes_sec')
-                }
-                continue
-
-            stat2_line_simple = stat2_line_simple_re.match(line)
-            if stat2_line_simple:
-                summary['total_size'] = stat2_line_simple.group('total_size')
-                summary['speedup'] = stat2_line_simple.group('speedup')
-                continue
-
-            stat_line_log = stat_line_log_re.match(line)
-            if stat_line_log:
-                summary = {
-                    'type': 'summary',
-                    'date': stat_line_log.group('date'),
-                    'time': stat_line_log.group('time'),
-                    'process': stat_line_log.group('process'),
-                    'sent': stat_line_log.group('sent'),
-                    'received': stat_line_log.group('received'),
-                    'total_size': stat_line_log.group('total_size')
-                }
-                continue
-
-            stat1_line_log_v = stat1_line_log_v_re.match(line)
-            if stat1_line_log_v:
-                summary = {
-                    'type': 'summary',
-                    'date': stat1_line_log_v.group('date'),
-                    'time': stat1_line_log_v.group('time'),
-                    'process': stat1_line_log_v.group('process'),
-                    'matches': stat1_line_log_v.group('matches'),
-                    'hash_hits': stat1_line_log_v.group('hash_hits'),
-                    'false_alarms': stat1_line_log_v.group('false_alarms'),
-                    'data': stat1_line_log_v.group('data')
-                }
-                continue
-
-            stat2_line_log_v = stat2_line_log_v_re.match(line)
-            if stat2_line_log_v:
-                summary['sent'] = stat2_line_log_v.group('sent')
-                summary['received'] = stat2_line_log_v.group('received')
-                summary['bytes_sec'] = stat2_line_log_v.group('bytes_sec')
-                continue
-
-            stat3_line_log_v = stat3_line_log_v_re.match(line)
-            if stat3_line_log_v:
-                summary['total_size'] = stat3_line_log_v.group('total_size')
-                summary['speedup'] = stat3_line_log_v.group('speedup')
-                continue
-
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
-
-    # gather final item
-    try:
-        if summary:
-            yield summary if raw else _process(summary)
-
-    except Exception as e:
-        yield raise_or_yield(ignore_exceptions, e, '')
+    stat3_line_log_v = _stat3_line_log_v_re.match(line)
+    if stat3_line_log_v:
+        state['summary']['total_size'] = stat3_line_log_v.group('total_size')
+        state['summary']['speedup'] = stat3_line_log_v.group('speedup')
+        return None

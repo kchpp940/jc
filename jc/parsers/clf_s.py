@@ -79,13 +79,9 @@ Examples:
     ...
 """
 import re
-from typing import Dict, Iterable
 import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
-from jc.jc_types import JSONDictType, StreamingOutputType
-from jc.exceptions import ParseError
+from jc.streaming import streaming_parser
+from jc.jc_types import JSONDictType
 
 
 class info():
@@ -100,6 +96,38 @@ class info():
 
 
 __version__ = info.version
+
+
+clf_pattern = re.compile(r'''
+    ^(?P<host>-|\S+)\s
+    (?P<ident>-|\S+)\s
+    (?P<authuser>-|\S+)\s
+    \[
+    (?P<date>
+        (?P<day>\d+)/
+        (?P<month>\S\S\S)/
+        (?P<year>\d\d\d\d):
+        (?P<hour>\d\d):
+        (?P<minute>\d\d):
+        (?P<second>\d\d)\s
+        (?P<tz>\S+)
+    )
+    \]\s
+    \"(?P<request>.*?)\"\s
+    (?P<status>-|\d\d\d)\s
+    (?P<bytes>-|\d+)\s?
+    (?:\"(?P<referer>.*?)\"\s?)?
+    (?:\"(?P<user_agent>.*?)\"\s?)?
+    (?P<extra>.*)
+    ''', re.VERBOSE
+)
+
+request_pattern = re.compile(r'''
+    (?P<request_method>\S+)\s
+    (?P<request_url>.*?(?=\sHTTPS?/|$))\s?
+    (?P<request_version>HTTPS?/[\d\.]+)?
+''', re.VERBOSE
+)
 
 
 def _process(proc_data: JSONDictType) -> JSONDictType:
@@ -135,13 +163,12 @@ def _process(proc_data: JSONDictType) -> JSONDictType:
     return proc_data
 
 
-@add_jc_meta
-def parse(
-    data: Iterable[str],
-    raw: bool = False,
-    quiet: bool = False,
-    ignore_exceptions: bool = False
-) -> StreamingOutputType:
+def _init_state():
+    return {}
+
+
+@streaming_parser(info, _process, _init_state)
+def parse(line, state, raw, quiet):
     """
     Main text parsing generator function. Returns an iterable object.
 
@@ -159,66 +186,23 @@ def parse(
 
         Iterable of Dictionaries
     """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
+    if not line.strip():
+        return None
 
-    clf_pattern = re.compile(r'''
-        ^(?P<host>-|\S+)\s
-        (?P<ident>-|\S+)\s
-        (?P<authuser>-|\S+)\s
-        \[
-        (?P<date>
-            (?P<day>\d+)/
-            (?P<month>\S\S\S)/
-            (?P<year>\d\d\d\d):
-            (?P<hour>\d\d):
-            (?P<minute>\d\d):
-            (?P<second>\d\d)\s
-            (?P<tz>\S+)
-        )
-        \]\s
-        \"(?P<request>.*?)\"\s
-        (?P<status>-|\d\d\d)\s
-        (?P<bytes>-|\d+)\s?
-        (?:\"(?P<referer>.*?)\"\s?)?
-        (?:\"(?P<user_agent>.*?)\"\s?)?
-        (?P<extra>.*)
-        ''', re.VERBOSE
-    )
+    output_line = {}
 
-    request_pattern = re.compile(r'''
-        (?P<request_method>\S+)\s
-        (?P<request_url>.*?(?=\sHTTPS?/|$))\s?  # positive lookahead for HTTP(S)/ or end of string
-        (?P<request_version>HTTPS?/[\d\.]+)?
-    ''', re.VERBOSE
-    )
+    clf_match = clf_pattern.match(line)
 
-    for line in data:
-        try:
-            streaming_line_input_type_check(line)
-            output_line: Dict = {}
+    if clf_match:
+        output_line = clf_match.groupdict()
 
-            if not line.strip():
-                continue
+        if output_line.get('request', None):
+            request_string = output_line['request']
+            request_match = request_pattern.match(request_string)
+            if request_match:
+                output_line.update(request_match.groupdict())
 
-            clf_match = re.match(clf_pattern, line)
+    else:
+        output_line = {"unparsable": line.strip()}
 
-            if clf_match:
-                output_line = clf_match.groupdict()
-
-                if output_line.get('request', None):
-                    request_string = output_line['request']
-                    request_match = re.match(request_pattern, request_string)
-                    if request_match:
-                         output_line.update(request_match.groupdict())
-
-            else:
-                output_line = {"unparsable": line.strip()}
-
-            if output_line:
-                yield output_line if raw else _process(output_line)
-            else:
-                raise ParseError('Not Common Log Format data')
-
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
+    return output_line

@@ -93,9 +93,7 @@ Examples:
 """
 import re
 import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
+from jc.streaming import streaming_parser, ParserState
 from jc.exceptions import ParseError
 
 PROCS_HEADER_RE = re.compile(r'^-*procs-* ')
@@ -149,122 +147,91 @@ def _process(proc_data):
     return proc_data
 
 
-@add_jc_meta
-def parse(data, raw=False, quiet=False, ignore_exceptions=False):
-    """
-    Main text parsing generator function. Returns an iterable object.
+def _init_state():
+    return {'procs': None, 'buff_cache': None, 'disk': None, 'tstamp': None, 'tz': None}
 
-    Parameters:
 
-        data:              (iterable)  line-based text data to parse
-                                       (e.g. sys.stdin or str.splitlines())
+@streaming_parser(info, _process, _init_state)
+def parse(line, state, raw, quiet):
+    if not line.strip():
+        return None
 
-        raw:               (boolean)   unprocessed output if True
-        quiet:             (boolean)   suppress warning messages if True
-        ignore_exceptions: (boolean)   ignore parsing exceptions if True
+    if not state['procs'] and not state['disk'] and PROCS_HEADER_RE.match(line):
+        state['procs'] = True
+        state['tstamp'] = '-timestamp-' in line
+        return None
 
-    Returns:
+    if not state['procs'] and not state['disk'] and DISK_HEADER_RE.match(line):
+        state['disk'] = True
+        state['tstamp'] = '-timestamp-' in line
+        return None
 
-        Iterable of Dictionaries
-    """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
+    if (state['procs'] or state['disk']) and (PROCS_HEADER_RE.match(line) or DISK_HEADER_RE.match(line)):
+        return None
 
-    procs = None
-    buff_cache = None
-    disk = None
-    tstamp = None
-    tz = None
+    if 'swpd' in line and 'free' in line and 'buff' in line and 'cache' in line:
+        state['buff_cache'] = True
+        state['tz'] = line.strip().split()[-1] if state['tstamp'] else None
+        return None
 
-    for line in data:
-        try:
-            streaming_line_input_type_check(line)
-            output_line = {}
+    if 'swpd' in line and 'free' in line and 'inact' in line and 'active' in line:
+        state['buff_cache'] = False
+        state['tz'] = line.strip().split()[-1] if state['tstamp'] else None
+        return None
 
-            # skip blank lines
-            if not line.strip():
-                continue
+    if 'total' in line and 'merged' in line and 'sectors' in line:
+        state['tz'] = line.strip().split()[-1] if state['tstamp'] else None
+        return None
 
-            # detect output type
-            if not procs and not disk and PROCS_HEADER_RE.match(line):
-                procs = True
-                tstamp = '-timestamp-' in line
-                continue
+    output_line = {}
 
-            if not procs and not disk and DISK_HEADER_RE.match(line):
-                disk = True
-                tstamp = '-timestamp-' in line
-                continue
+    if state['procs']:
+        line_list = line.strip().split(maxsplit=17)
 
-            # skip header rows
-            if (procs or disk) and (PROCS_HEADER_RE.match(line) or DISK_HEADER_RE.match(line)):
-                continue
+        output_line = {
+            'runnable_procs': line_list[0],
+            'uninterruptible_sleeping_procs': line_list[1],
+            'virtual_mem_used': line_list[2],
+            'free_mem': line_list[3],
+            'buffer_mem': line_list[4] if state['buff_cache'] else None,
+            'cache_mem': line_list[5] if state['buff_cache'] else None,
+            'inactive_mem': line_list[4] if not state['buff_cache'] else None,
+            'active_mem': line_list[5] if not state['buff_cache'] else None,
+            'swap_in': line_list[6],
+            'swap_out': line_list[7],
+            'blocks_in': line_list[8],
+            'blocks_out': line_list[9],
+            'interrupts': line_list[10],
+            'context_switches': line_list[11],
+            'user_time': line_list[12],
+            'system_time': line_list[13],
+            'idle_time': line_list[14],
+            'io_wait_time': line_list[15],
+            'stolen_time': line_list[16],
+            'timestamp': line_list[17] if state['tstamp'] else None,
+            'timezone': state['tz'] or None
+        }
 
-            if 'swpd' in line and 'free' in line and 'buff' in line and 'cache' in line:
-                buff_cache = True
-                tz = line.strip().split()[-1] if tstamp else None
-                continue
+    if state['disk']:
+        line_list = line.strip().split(maxsplit=11)
 
-            if 'swpd' in line and 'free' in line and 'inact' in line and 'active' in line:
-                buff_cache = False
-                tz = line.strip().split()[-1] if tstamp else None
-                continue
+        output_line = {
+            'disk': line_list[0],
+            'total_reads': line_list[1],
+            'merged_reads': line_list[2],
+            'sectors_read': line_list[3],
+            'reading_ms': line_list[4],
+            'total_writes': line_list[5],
+            'merged_writes': line_list[6],
+            'sectors_written': line_list[7],
+            'writing_ms': line_list[8],
+            'current_io': line_list[9],
+            'io_seconds': line_list[10],
+            'timestamp': line_list[11] if state['tstamp'] else None,
+            'timezone': state['tz'] or None
+        }
 
-            if 'total' in line and 'merged' in line and 'sectors' in line:
-                tz = line.strip().split()[-1] if tstamp else None
-                continue
+    if output_line:
+        return output_line
 
-            # line parsing
-            if procs:
-                line_list = line.strip().split(maxsplit=17)
-
-                output_line = {
-                    'runnable_procs': line_list[0],
-                    'uninterruptible_sleeping_procs': line_list[1],
-                    'virtual_mem_used': line_list[2],
-                    'free_mem': line_list[3],
-                    'buffer_mem': line_list[4] if buff_cache else None,
-                    'cache_mem': line_list[5] if buff_cache else None,
-                    'inactive_mem': line_list[4] if not buff_cache else None,
-                    'active_mem': line_list[5] if not buff_cache else None,
-                    'swap_in': line_list[6],
-                    'swap_out': line_list[7],
-                    'blocks_in': line_list[8],
-                    'blocks_out': line_list[9],
-                    'interrupts': line_list[10],
-                    'context_switches': line_list[11],
-                    'user_time': line_list[12],
-                    'system_time': line_list[13],
-                    'idle_time': line_list[14],
-                    'io_wait_time': line_list[15],
-                    'stolen_time': line_list[16],
-                    'timestamp': line_list[17] if tstamp else None,
-                    'timezone': tz or None
-                }
-
-            if disk:
-                line_list = line.strip().split(maxsplit=11)
-
-                output_line = {
-                    'disk': line_list[0],
-                    'total_reads': line_list[1],
-                    'merged_reads': line_list[2],
-                    'sectors_read': line_list[3],
-                    'reading_ms': line_list[4],
-                    'total_writes': line_list[5],
-                    'merged_writes': line_list[6],
-                    'sectors_written': line_list[7],
-                    'writing_ms': line_list[8],
-                    'current_io': line_list[9],
-                    'io_seconds': line_list[10],
-                    'timestamp': line_list[11] if tstamp else None,
-                    'timezone': tz or None
-                }
-
-            if output_line:
-                yield output_line if raw else _process(output_line)
-            else:
-                raise ParseError('Not vmstat data')
-
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
+    raise ParseError('Not vmstat data')

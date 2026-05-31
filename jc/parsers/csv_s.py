@@ -57,7 +57,7 @@ Examples:
 import itertools
 import csv
 import jc.utils
-from jc.streaming import streaming_input_type_check, add_jc_meta, raise_or_yield
+from jc.streaming import streaming_parser, ParserState
 from jc.exceptions import ParseError
 
 
@@ -93,51 +93,22 @@ def _process(proc_data):
     return proc_data
 
 
-@add_jc_meta
-def parse(data, raw=False, quiet=False, ignore_exceptions=False):
-    """
-    Main text parsing generator function. Returns an iterable object.
-
-    Parameters:
-
-        data:              (iterable)  line-based text data to parse
-                                       (e.g. sys.stdin or str.splitlines())
-
-        raw:               (boolean)   unprocessed output if True
-        quiet:             (boolean)   suppress warning messages if True
-        ignore_exceptions: (boolean)   ignore parsing exceptions if True
-
-    Returns:
-
-        Iterable of Dictionaries
-    """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
-
-    # convert data to an iterable in case a sequence like a list is used as input.
-    # this allows the exhaustion of the input so we don't double-process later.
+def _preprocess(data, state):
     data = iter(data)
     temp_list = []
-
-    # first, load the first 100 lines into a list to detect the CSV dialect
     for line in itertools.islice(data, 100):
         temp_list.append(line.rstrip())
 
-    # check for Python bug that does not split on `\r` newlines from sys.stdin correctly
-    # https://bugs.python.org/issue45617
     if len(temp_list) == 1:
         raise ParseError('Unable to detect line endings. Please try the non-streaming CSV parser instead.')
 
-    # remove BOM bytes from first row, if present
     if temp_list:
         if isinstance(temp_list[0], str):
             temp_list[0] = temp_list[0].encode('utf-8')
-
         temp_list[0] = temp_list[0].decode('utf-8-sig')
 
     sniffdata = '\r\n'.join(temp_list)[:1024]
-    dialect = 'excel'  # default in csv module
-
+    dialect = 'excel'
     try:
         dialect = csv.Sniffer().sniff(sniffdata)
         if '""' in sniffdata:
@@ -145,12 +116,15 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
     except Exception:
         pass
 
-    # chain `temp_list` and `data` together to lazy load the rest of the CSV data
+    state['dialect'] = dialect
     new_data = itertools.chain(temp_list, data)
-    reader = csv.DictReader(new_data, dialect=dialect)
+    return csv.DictReader(new_data, dialect=dialect)
 
-    for row in reader:
-        try:
-            yield row if raw else _process(row)
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, str(row))
+
+def _init_state():
+    return {'dialect': 'excel'}
+
+
+@streaming_parser(info, _process, _init_state, preprocess=_preprocess)
+def parse(row, state, raw, quiet):
+    return dict(row)

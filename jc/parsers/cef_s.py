@@ -85,13 +85,10 @@ Examples:
     {"deviceVendor":"Trend Micro","deviceProduct":"Deep Security Agent"...}
     ...
 """
-from typing import Dict, Iterable, Union
+from typing import Dict
 import re
 import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
-from jc.exceptions import ParseError
+from jc.streaming import streaming_parser
 from jc.parsers.cef import _pycef_parse
 
 
@@ -266,13 +263,12 @@ def _process(proc_data: Dict) -> Dict:
     return proc_data
 
 
-@add_jc_meta
-def parse(
-    data: Iterable[str],
-    raw: bool = False,
-    quiet: bool = False,
-    ignore_exceptions: bool = False
-) -> Union[Iterable[Dict], tuple]:
+def _init_state():
+    return {}
+
+
+@streaming_parser(info, _process, _init_state)
+def parse(line, state, raw, quiet):
     """
     Main text parsing generator function. Returns an iterable object.
 
@@ -290,33 +286,18 @@ def parse(
 
         Iterable of Dictionaries
     """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
+    if not line.strip():
+        return None
 
-    for line in data:
-        try:
-            streaming_line_input_type_check(line)
-            output_line: Dict = {}
+    try:
+        output_line = _pycef_parse(line)
+    except Exception:
+        output_line = {
+            'unparsable': line.rstrip()
+        }
+        if not quiet:
+            jc.utils.warning_message(
+                [f'Unparsable line found: {line.rstrip()}']
+            )
 
-            #skip blank lines
-            if not line.strip():
-                continue
-
-            try:
-                output_line = _pycef_parse(line)
-
-            except Exception:
-                output_line = {
-                    'unparsable': line.rstrip()
-                }
-
-                if not quiet:
-                    jc.utils.warning_message(
-                        [f'Unparsable line found: {line.rstrip()}']
-                    )
-
-            if output_line:
-                yield output_line if raw else _process(output_line)
-
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
+    return output_line if output_line else None

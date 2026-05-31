@@ -76,13 +76,10 @@ Examples:
     {"time":"1646859134","uid":"0","pid":"9","percent_usr":"0.00","perc...}
     ...
 """
-from typing import List, Dict, Iterable, Union
+from typing import Dict
 import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
+from jc.streaming import streaming_parser
 from jc.parsers.universal import simple_table_parse
-from jc.exceptions import ParseError
 
 
 class info():
@@ -140,13 +137,12 @@ def normalize_header(header: str) -> str:
                  .lower()
 
 
-@add_jc_meta
-def parse(
-    data: Iterable[str],
-    raw: bool = False,
-    quiet: bool = False,
-    ignore_exceptions: bool = False
-) -> Union[Iterable[Dict], tuple]:
+def _init_state():
+    return {'table_list': [], 'header': ''}
+
+
+@streaming_parser(info, _process, _init_state, has_final_yield=True)
+def parse(line, state, raw, quiet):
     """
     Main text parsing generator function. Returns an iterable object.
 
@@ -163,45 +159,26 @@ def parse(
 
         Iterable of Dictionaries
     """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
+    if line is None:
+        if len(state['table_list']) > 1:
+            return simple_table_parse(state['table_list'])[0]
+        return None
 
-    table_list: List = []
-    header: str = ''
+    if not line.strip():
+        return None
 
-    for line in data:
-        try:
-            streaming_line_input_type_check(line)
-            output_line: Dict = {}
+    if line.startswith('#'):
+        result = None
+        if len(state['table_list']) > 1:
+            result = simple_table_parse(state['table_list'])[0]
+        state['header'] = normalize_header(line)
+        state['table_list'] = [state['header']]
+        return result
 
-            if not line.strip():
-                # skip blank lines
-                continue
+    if state['header']:
+        state['table_list'].append(line)
+        result = simple_table_parse(state['table_list'])[0]
+        state['table_list'] = [state['header']]
+        return result
 
-            if line.startswith('#'):
-                if len(table_list) > 1:
-                    output_line = simple_table_parse(table_list)[0]
-                    yield output_line if raw else _process(output_line)
-                    header = ''
-
-                header = normalize_header(line)
-                table_list = [header]
-                continue
-
-            if header:
-                table_list.append(line)
-                output_line = simple_table_parse(table_list)[0]
-                yield output_line if raw else _process(output_line)
-                table_list = [header]
-                continue
-
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
-
-    try:
-        if len(table_list) > 1:
-            output_line = simple_table_parse(table_list)[0]
-            yield output_line if raw else _process(output_line)
-
-    except Exception as e:
-        yield raise_or_yield(ignore_exceptions, e, str(table_list))
+    return None

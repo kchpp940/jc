@@ -131,13 +131,8 @@ Examples:
     }
     ...
 """
-from typing import Optional
-
-import jc.utils
 from jc.exceptions import ParseError
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
+from jc.streaming import streaming_parser
 from .traceroute import RE_HEADER, RE_HOP, RE_HEADER_HOPS_BYTES, _Hop, _loads, _process, _serialize_hop
 
 
@@ -183,17 +178,12 @@ SOFTWARE.
 '''
 
 
-def _hop_output(hop: _Hop, raw: bool):
-    raw_output = {
-        'type': 'hop',
-        **_serialize_hop(hop),
-    }
-
-    return raw_output if raw else _process(raw_output)
+def _init_state():
+    return {'hop_cache': None}
 
 
-@add_jc_meta
-def parse(data, raw=False, quiet=False, ignore_exceptions=False):
+@streaming_parser(info, _process, _init_state, has_final_yield=True)
+def parse(line, state, raw, quiet):
     """
     Main text parsing function. Returns an iterable object.
 
@@ -210,68 +200,43 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
 
         Iterable of Dictionaries
     """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
+    if line is None:
+        if state['hop_cache']:
+            result = {'type': 'hop', **_serialize_hop(state['hop_cache'])}
+            state['hop_cache'] = None
+            return result
+        return None
 
-    # Estimated number of probe packets per hop. See `traceroute -q` on Linux, for example.
-    queries = 0
-    # Accumulated hop across multiple lines
-    hop_cache: Optional[_Hop] = None
+    if RE_HEADER.search(line):
+        tr = _loads(line, quiet)
+        return {
+            'type': 'header',
+            'destination_ip': tr.dest_ip,
+            'destination_name': tr.dest_name,
+            'max_hops': tr.max_hops,
+            'data_bytes': tr.data_bytes
+        }
 
-    for line in data:  # type: str
-        try:
-            streaming_line_input_type_check(line)
+    m = RE_HOP.match(line)
+    if not m:
+        return None
 
-            if RE_HEADER.search(line):
-                tr = _loads(line, quiet)
-                raw_output = {
-                    'type': 'header',
-                    'destination_ip': tr.dest_ip,
-                    'destination_name': tr.dest_name,
-                    'max_hops': tr.max_hops,
-                    'data_bytes': tr.data_bytes
-                }
+    if not m.group(1):
+        if not state['hop_cache']:
+            raise ParseError('No hop index found')
+        line = f"{state['hop_cache'].idx} {line}"
+        tr = _loads(line, quiet=True)
+        if not tr.hops:
+            return None
+        state['hop_cache'].probes.extend(tr.hops[0].probes)
+        return None
 
-                yield raw_output if raw else _process(raw_output)
-
-            else:
-                m = RE_HOP.match(line)
-                if not m:
-                    continue
-
-                # A single hop can wrap across multiple lines, e.g.:
-                #
-                #     6  [AS0] 94.142.122.45 (94.142.122.45)  42.790 ms  46.352 ms
-                #        [AS0] 94.142.122.44 (94.142.122.44)  41.479 ms
-                #
-                if not m.group(1):
-                    if not hop_cache:
-                        raise ParseError('No hop index found')
-
-                    # If the hop index is not found, prepend the hop index (6) to the following lines before parsing.
-                    line = f"{hop_cache.idx} {line}"
-                    # Specify quiet=True to suppress the 'No header row found' warning for hop lines
-                    tr = _loads(line, quiet=True)
-                    if not tr.hops:
-                        continue
-
-                    hop_cache.probes.extend(tr.hops[0].probes)
-
-                else:
-                    # if the hop index is found, yield the previous hop
-                    if hop_cache:
-                        yield _hop_output(hop_cache, raw)
-                        hop_cache = None
-
-                    # Specify quiet=True to suppress the 'No header row found' warning for hop lines
-                    tr = _loads(line, quiet=True)
-                    if not tr.hops:
-                        continue
-
-                    hop_cache = tr.hops[0]
-
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
-
-    if hop_cache:
-        yield _hop_output(hop_cache, raw)
+    result = None
+    if state['hop_cache']:
+        result = {'type': 'hop', **_serialize_hop(state['hop_cache'])}
+    tr = _loads(line, quiet=True)
+    if not tr.hops:
+        state['hop_cache'] = None
+        return result
+    state['hop_cache'] = tr.hops[0]
+    return result

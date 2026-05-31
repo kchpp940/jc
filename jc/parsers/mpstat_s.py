@@ -90,13 +90,10 @@ Examples:
     {"cpu":"all","intr_s":"37.61","type":"interrupts","time":"03:15:06 PM"}
     ...
 """
-from typing import Dict, Iterable, Union
+from typing import Dict
 import jc.utils
 from jc.parsers.universal import simple_table_parse
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
-from jc.exceptions import ParseError
+from jc.streaming import streaming_parser, ParserState
 
 
 class info():
@@ -141,75 +138,45 @@ def _process(proc_data: Dict) -> Dict:
     return proc_data
 
 
-@add_jc_meta
-def parse(
-    data: Iterable[str],
-    raw: bool = False,
-    quiet: bool = False,
-    ignore_exceptions: bool = False
-) -> Union[Iterable[Dict], tuple]:
-    """
-    Main text parsing generator function. Returns an iterable object.
+def _init_state():
+    return {'header_found': False, 'stat_type': '', 'header_text': '', 'header_start': 0}
 
-    Parameters:
 
-        data:              (iterable)  line-based text data to parse
-                                       (e.g. sys.stdin or str.splitlines())
+@streaming_parser(info, _process, _init_state)
+def parse(line, state, raw, quiet):
+    if not line.strip():
+        return None
 
-        raw:               (boolean)   unprocessed output if True
-        quiet:             (boolean)   suppress warning messages if True
-        ignore_exceptions: (boolean)   ignore parsing exceptions if True
+    if ' CPU ' in line or ' NODE ' in line:
+        state['header_found'] = True
+        if '%usr' in line:
+            state['stat_type'] = 'cpu'
+        else:
+            state['stat_type'] = 'interrupts'
 
-    Returns:
+        state['header_text'] = line.replace('/', '_')\
+                                   .replace('%', 'percent_')\
+                                   .lower()
+        state['header_start'] = line.find('CPU ')
 
-        Iterable of Dictionaries
-    """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
+        if state['header_start'] == -1:
+            state['header_start'] = line.find('NODE ')
 
-    header_found: bool = False
+        state['header_text'] = state['header_text'][state['header_start']:]
+        return None
 
-    for line in data:
-        try:
-            streaming_line_input_type_check(line)
+    output_line = {}
 
-            # skip blank lines
-            if not line.strip():
-                continue
+    if state['header_found']:
+        output_line = simple_table_parse([state['header_text'], line[state['header_start']:]])[0]
+        output_line['type'] = state['stat_type']
+        item_time = line[:state['header_start']].strip()
+        if 'Average:' not in item_time:
+            output_line['time'] = line[:state['header_start']].strip()
+        else:
+            output_line['average'] = True
 
-            output_line: Dict = {}
+    if output_line:
+        return output_line
 
-            # check for header, normalize it, and fix the time column
-            if ' CPU ' in line or ' NODE ' in line:
-                header_found = True
-                if '%usr' in line:
-                    stat_type = 'cpu'
-                else:
-                    stat_type = 'interrupts'
-
-                header_text: str = line.replace('/', '_')\
-                                       .replace('%', 'percent_')\
-                                       .lower()
-                header_start = line.find('CPU ')
-
-                if header_start == -1:
-                    header_start = line.find('NODE ')
-
-                header_text = header_text[header_start:]
-                continue
-
-            # data line - pull time from beginning and then parse as a table
-            if header_found:
-                output_line = simple_table_parse([header_text, line[header_start:]])[0]
-                output_line['type'] = stat_type
-                item_time = line[:header_start].strip()
-                if 'Average:' not in item_time:
-                    output_line['time'] = line[:header_start].strip()
-                else:
-                    output_line['average'] = True
-
-            if output_line:
-                yield output_line if raw else _process(output_line)
-
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
+    return None

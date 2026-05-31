@@ -79,12 +79,10 @@ Examples:
     ...
 """
 import re
-from typing import List, Dict, Any, Iterable, Union
+from typing import List, Dict, Any
 import jc.utils
 from jc.parsers.git_log import _parse_name_email
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
+from jc.streaming import streaming_parser, ParserState
 from jc.exceptions import ParseError
 
 
@@ -151,13 +149,38 @@ def _is_commit_hash(hash_string: str) -> bool:
     return False
 
 
-@add_jc_meta
-def parse(
-    data: Iterable[str],
-    raw: bool = False,
-    quiet: bool = False,
-    ignore_exceptions: bool = False
-) -> Union[Iterable[Dict], tuple]:
+def _init_state():
+    return {
+        'output_line': {},
+        'message_lines': [],
+        'file_list': [],
+        'file_stats_list': []
+    }
+
+
+def _finalize(state):
+    output_line = state['output_line']
+    if not output_line:
+        return None
+    if state['message_lines']:
+        output_line['message'] = '\n'.join(state['message_lines'])
+    if state['file_list']:
+        if 'stats' not in output_line:
+            output_line['stats'] = {}
+        output_line['stats']['files'] = state['file_list']
+    if state['file_stats_list']:
+        if 'stats' not in output_line:
+            output_line['stats'] = {}
+        output_line['stats']['file_stats'] = state['file_stats_list']
+    state['output_line'] = {}
+    state['message_lines'] = []
+    state['file_list'] = []
+    state['file_stats_list'] = []
+    return output_line
+
+
+@streaming_parser(info, _process, _init_state, has_final_yield=True)
+def parse(line, state, raw, quiet):
     """
     Main text parsing generator function. Returns an iterable object.
 
@@ -175,142 +198,83 @@ def parse(
 
         Iterable of Dictionaries
     """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
+    if line is None:
+        return _finalize(state)
 
-    output_line: Dict = {}
-    message_lines: List[str] = []
-    file_list: List[str] = []
-    file_stats_list: List[Dict[str, Any]] = []
+    if line == '' or line == '\n':
+        return None
 
-    for line in data:
-        try:
-            streaming_line_input_type_check(line)
+    line_list = line.rstrip().split(maxsplit=1)
 
-            if line == '' or line == '\n':
-                continue
+    if not line.startswith(' ') and line_list and _is_commit_hash(line_list[0]):
+        result = _finalize(state)
+        state['output_line'] = {
+            'commit': line_list[0],
+            'message': line_list[1]
+        }
+        return result
 
-            line_list = line.rstrip().split(maxsplit=1)
+    if line.startswith('commit '):
+        result = _finalize(state)
+        state['output_line'] = {'commit': line_list[1]}
+        return result
 
-            # oneline style
-            if not line.startswith(' ') and line_list and _is_commit_hash(line_list[0]):
-                if output_line:
-                    if file_list:
-                        output_line['stats']['files'] = file_list
+    if line.startswith('Merge: '):
+        state['output_line']['merge'] = line_list[1]
+        return None
 
-                    if file_stats_list:
-                        output_line['stats']['file_stats'] = file_stats_list
+    if line.startswith('Author: '):
+        state['output_line']['author'], state['output_line']['author_email'] = _parse_name_email(line_list[1])
+        return None
 
-                    yield output_line if raw else _process(output_line)
+    if line.startswith('Date: '):
+        state['output_line']['date'] = line_list[1]
+        return None
 
-                    output_line = {}
-                    message_lines = []
-                    file_list = []
-                    file_stats_list = []
-                output_line = {
-                    'commit': line_list[0],
-                    'message': line_list[1]
-                }
-                continue
+    if line.startswith('AuthorDate: '):
+        state['output_line']['date'] = line_list[1]
+        return None
 
-            # all other styles
-            if line.startswith('commit '):
-                if output_line:
-                    if message_lines:
-                        output_line['message'] = '\n'.join(message_lines)
+    if line.startswith('CommitDate: '):
+        state['output_line']['commit_by_date'] = line_list[1]
+        return None
 
-                    if file_list:
-                        output_line['stats']['files'] = file_list
+    if line.startswith('Commit: '):
+        state['output_line']['commit_by'], state['output_line']['commit_by_email'] = _parse_name_email(line_list[1])
+        return None
 
-                    if file_stats_list:
-                        output_line['stats']['file_stats'] = file_stats_list
+    if line.startswith('    '):
+        state['message_lines'].append(line.strip())
+        return None
 
-                    yield output_line if raw else _process(output_line)
+    if line.startswith(' ') and 'changed, ' not in line:
+        file_line_split = line.split('|')
+        file_name = file_line_split[0].strip()
+        state['file_list'].append(file_name)
 
-                    output_line = {}
-                    message_lines = []
-                    file_list = []
-                    file_stats_list = []
-                output_line['commit'] = line_list[1]
-                continue
+        if len(file_line_split) > 1:
+            file_stats = file_line_split[1].strip()
+            lines_changed_str = file_stats.split(' ')
+            lines_changed_count_str = lines_changed_str[0].strip()
 
-            if line.startswith('Merge: '):
-                output_line['merge'] = line_list[1]
-                continue
+        file_stat = {}
+        file_stat["name"] = file_name
+        file_stat["lines_changed"] = lines_changed_count_str
+        state['file_stats_list'].append(file_stat)
+        return None
 
-            if line.startswith('Author: '):
-                output_line['author'], output_line['author_email'] = _parse_name_email(line_list[1])
-                continue
+    if line.startswith(' ') and 'changed, ' in line:
+        changes = changes_pattern.match(line)
+        if changes:
+            files = changes['files']
+            insertions = changes['insertions']
+            deletions = changes['deletions']
 
-            if line.startswith('Date: '):
-                output_line['date'] = line_list[1]
-                continue
+        state['output_line']['stats'] = {
+            'files_changed': files or '0',
+            'insertions': insertions or '0',
+            'deletions':  deletions or '0'
+        }
+        return None
 
-            if line.startswith('AuthorDate: '):
-                output_line['date'] = line_list[1]
-                continue
-
-            if line.startswith('CommitDate: '):
-                output_line['commit_by_date'] = line_list[1]
-                continue
-
-            if line.startswith('Commit: '):
-                output_line['commit_by'], output_line['commit_by_email'] = _parse_name_email(line_list[1])
-                continue
-
-            if line.startswith('    '):
-                message_lines.append(line.strip())
-                continue
-
-            if line.startswith(' ') and 'changed, ' not in line:
-                # this is a file name
-                file_line_split = line.split('|')
-                file_name = file_line_split[0].strip()
-                file_list.append(file_name)
-
-                if len(file_line_split) > 1:
-                    file_stats = file_line_split[1].strip()
-                    lines_changed_str = file_stats.split(' ')
-                    lines_changed_count_str = lines_changed_str[0].strip()
-
-                file_stat = {}
-                file_stat["name"] = file_name
-                file_stat["lines_changed"] = lines_changed_count_str
-                file_stats_list.append(file_stat)
-                continue
-
-            if line.startswith(' ') and 'changed, ' in line:
-                # this is the stat summary
-                changes = changes_pattern.match(line)
-                if changes:
-                    files = changes['files']
-                    insertions = changes['insertions']
-                    deletions = changes['deletions']
-
-                output_line['stats'] = {
-                    'files_changed': files or '0',
-                    'insertions': insertions or '0',
-                    'deletions':  deletions or '0'
-                }
-                continue
-
-            raise ParseError('Not git_log_s data')
-
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
-
-    try:
-        if output_line:
-            if message_lines:
-                output_line['message'] = '\n'.join(message_lines)
-
-            if file_list:
-                output_line['stats']['files'] = file_list
-
-            if file_stats_list:
-                output_line['stats']['file_stats'] = file_stats_list
-
-            yield output_line if raw else _process(output_line)
-
-    except Exception as e:
-        yield raise_or_yield(ignore_exceptions, e, line)
+    raise ParseError('Not git_log_s data')

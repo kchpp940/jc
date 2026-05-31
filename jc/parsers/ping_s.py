@@ -80,9 +80,7 @@ import re
 import string
 import ipaddress
 import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
+from jc.streaming import streaming_parser, ParserState
 from jc.exceptions import ParseError
 
 
@@ -565,8 +563,12 @@ def _linux_parse(line, s):
         return output_line
 
 
-@add_jc_meta
-def parse(data, raw=False, quiet=False, ignore_exceptions=False):
+def _init_state():
+    return {'s': _state(), 'summary_obj': {}}
+
+
+@streaming_parser(info, _process, _init_state, has_final_yield=True)
+def parse(line, state, raw, quiet):
     """
     Main text parsing generator function. Returns an iterable object.
 
@@ -583,75 +585,59 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
 
         Iterable of Dictionaries
     """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
+    s = state['s']
+    summary_obj = state['summary_obj']
 
-    s = _state()
-    summary_obj = {}
+    if line is None:
+        if state['summary_obj']:
+            result = state['summary_obj']
+            state['summary_obj'] = {}
+            return result
+        return None
 
-    for line in data:
-        try:
-            streaming_line_input_type_check(line)
-            output_line = {}
+    if not line.strip():
+        return None
 
-            # skip blank lines
-            if not line.strip():
-                continue
+    if line.startswith('WARNING: '):
+        return None
 
-            # skip warning lines
-            if line.startswith('WARNING: '):
-                continue
+    if line.startswith('PATTERN: '):
+        s.pattern = line.strip().split(': ')[1]
+        return None
 
-            # check for PATTERN
-            if line.startswith('PATTERN: '):
-                s.pattern = line.strip().split(': ')[1]
-                continue
+    if not s.os_detected and line.strip().endswith('bytes of data.'):
+        s.os_detected = True
+        s.linux = True
 
-            # detect Linux vs. BSD ping
-            if not s.os_detected and line.strip().endswith('bytes of data.'):
-                s.os_detected = True
-                s.linux = True
+    elif not s.os_detected and '-->' in line:
+        s.os_detected = True
+        s.bsd = True
 
-            elif not s.os_detected and '-->' in line:
-                s.os_detected = True
-                s.bsd = True
+    elif not s.os_detected and _ipv6_in(line) and line.strip().endswith('data bytes'):
+        s.os_detected = True
+        s.linux = True
 
-            elif not s.os_detected and _ipv6_in(line) and line.strip().endswith('data bytes'):
-                s.os_detected = True
-                s.linux = True
+    elif not s.os_detected and not _ipv6_in(line) and line.strip().endswith('data bytes'):
+        s.os_detected = True
+        s.bsd = True
 
-            elif not s.os_detected and not _ipv6_in(line) and line.strip().endswith('data bytes'):
-                s.os_detected = True
-                s.bsd = True
+    output_line = {}
 
-            # parse the data
-            if s.os_detected and s.linux:
-                output_line = _linux_parse(line, s)
+    if s.os_detected and s.linux:
+        output_line = _linux_parse(line, s)
 
-                # summary can be multiple lines so don't output until the end
-                if output_line:
-                    if output_line.get('type', None) == 'summary':
-                        summary_obj = output_line
-                        continue
+        if output_line:
+            if output_line.get('type', None) == 'summary':
+                state['summary_obj'] = output_line
+                return None
 
-            elif s.os_detected and s.bsd:
-                output_line = _bsd_parse(line, s)
+    elif s.os_detected and s.bsd:
+        output_line = _bsd_parse(line, s)
 
-            else:
-                raise ParseError('Could not detect ping OS')
+    else:
+        raise ParseError('Could not detect ping OS')
 
-            # yield the output line if it has data
-            if output_line:
-                yield output_line if raw else _process(output_line)
-            else:
-                continue
-
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
-
-    # yield summary, if it exists
-    try:
-        if summary_obj:
-            yield summary_obj if raw else _process(summary_obj)
-    except Exception as e:
-        yield raise_or_yield(ignore_exceptions, e, str(summary_obj))
+    if output_line:
+        return output_line
+    else:
+        return None

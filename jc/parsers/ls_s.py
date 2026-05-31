@@ -69,9 +69,7 @@ Examples:
 """
 import re
 import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
+from jc.streaming import streaming_parser
 from jc.exceptions import ParseError
 
 
@@ -117,8 +115,12 @@ def _process(proc_data):
     return proc_data
 
 
-@add_jc_meta
-def parse(data, raw=False, quiet=False, ignore_exceptions=False):
+def _init_state():
+    return {'parent': ''}
+
+
+@streaming_parser(info, _process, _init_state)
+def parse(line, state, raw, quiet):
     """
     Main text parsing generator function. Returns an iterable object.
 
@@ -135,59 +137,41 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
 
         Iterable of Dictionaries
     """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
+    if re.match(r'total [0-9]+', line):
+        return None
 
-    parent = ''
+    if not line.strip():
+        return None
 
-    for line in data:
-        try:
-            streaming_line_input_type_check(line)
+    if not re.match(r'[-dclpsbDCMnP?]([-r][-w][-xsS]){2}([-r][-w][-xtT])[+]?', line) \
+        and line.strip().endswith(':'):
+        state['parent'] = line.strip()[:-1]
+        return None
 
-            # skip line if it starts with 'total 1234'
-            if re.match(r'total [0-9]+', line):
-                continue
+    if not re.match(r'[-dclpsbDCMnP?]([-r][-w][-xsS]){2}([-r][-w][-xtT])[+]?', line):
+        raise ParseError('Not ls -l data')
 
-            # skip blank lines
-            if not line.strip():
-                continue
+    parsed_line = line.strip().split(maxsplit=8)
+    output_line = {}
 
-            # Look for parent line if glob or -R is used
-            if not re.match(r'[-dclpsbDCMnP?]([-r][-w][-xsS]){2}([-r][-w][-xtT])[+]?', line) \
-                and line.strip().endswith(':'):
-                parent = line.strip()[:-1]
-                continue
+    if len(parsed_line) == 9:
+        filename_field = parsed_line[8].split(' -> ')
+    else:
+        filename_field = ['']
 
-            if not re.match(r'[-dclpsbDCMnP?]([-r][-w][-xsS]){2}([-r][-w][-xtT])[+]?', line):
-                raise ParseError('Not ls -l data')
+    output_line['filename'] = filename_field[0]
 
-            parsed_line = line.strip().split(maxsplit=8)
-            output_line = {}
+    if len(filename_field) > 1:
+        output_line['link_to'] = filename_field[1]
 
-            # split filenames and links
-            if len(parsed_line) == 9:
-                filename_field = parsed_line[8].split(' -> ')
-            else:
-                # in case of filenames starting with a newline character
-                filename_field = ['']
+    if state['parent']:
+        output_line['parent'] = state['parent']
 
-            # create output object
-            output_line['filename'] = filename_field[0]
+    output_line['flags'] = parsed_line[0]
+    output_line['links'] = parsed_line[1]
+    output_line['owner'] = parsed_line[2]
+    output_line['group'] = parsed_line[3]
+    output_line['size'] = parsed_line[4]
+    output_line['date'] = ' '.join(parsed_line[5:8])
 
-            if len(filename_field) > 1:
-                output_line['link_to'] = filename_field[1]
-
-            if parent:
-                output_line['parent'] = parent
-
-            output_line['flags'] = parsed_line[0]
-            output_line['links'] = parsed_line[1]
-            output_line['owner'] = parsed_line[2]
-            output_line['group'] = parsed_line[3]
-            output_line['size'] = parsed_line[4]
-            output_line['date'] = ' '.join(parsed_line[5:8])
-
-            yield output_line if raw else _process(output_line)
-
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
+    return output_line

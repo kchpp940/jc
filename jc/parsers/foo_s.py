@@ -24,9 +24,9 @@ Schema:
 
       # below object only exists if using -qq or ignore_exceptions=True
       "_jc_meta": {
-        "success":      boolean,     # false if error parsing
-        "error":        string,      # exists if "success" is false
-        "line":         string       # exists if "success" is false
+        "success":      boolean,
+        "error":        string,
+        "line":         string
       }
     }
 
@@ -40,17 +40,14 @@ Examples:
     {example output}
     ...
 """
-from typing import Dict, Iterable
-import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
-from jc.jc_types import JSONDictType, StreamingOutputType
+from typing import Dict, Optional
+from jc.streaming import streaming_parser, ParserState
+from jc.jc_types import JSONDictType
 from jc.exceptions import ParseError
 
 
 class info():
-    """Provides parser metadata (version, author, etc.)"""
+    """Parser metadata."""
     version = '1.0'
     description = '`foo` command streaming parser'
     author = 'John Doe'
@@ -86,59 +83,45 @@ def _process(proc_data: JSONDictType) -> JSONDictType:
 
         Dictionary. Structured data to conform to the schema.
     """
-
-    # process the data here
-    # rebuild output for added semantic information
-    # use helper functions in jc.utils for int, float,
-    # bool conversions and timestamps
-
+    # add semantic conversions using jc.utils helpers
     return proc_data
 
 
-@add_jc_meta
-def parse(
-    data: Iterable[str],
-    raw: bool = False,
-    quiet: bool = False,
-    ignore_exceptions: bool = False
-) -> StreamingOutputType:
+def _init_state() -> ParserState:
     """
-    Main text parsing generator function. Returns an iterable object.
+    Initialize parser state. Omit for stateless parsers.
+    """
+    return {
+        'header_found': False,
+        'line_count': 0
+    }
 
-    Parameters:
 
-        data:              (iterable)  line-based text data to parse
-                                       (e.g. sys.stdin or str.splitlines())
-
-        raw:               (boolean)   unprocessed output if True
-        quiet:             (boolean)   suppress warning messages if True
-        ignore_exceptions: (boolean)   ignore parsing exceptions if True
-
+@streaming_parser(info, _process, _init_state)
+def parse(
+    line: Optional[str],
+    state: ParserState,
+    raw: bool,
+    quiet: bool
+) -> Optional[JSONDictType]:
+    """
+    Line parsing function. Decorator handles iteration and meta.
 
     Returns:
-
-        Iterable of Dictionaries
+        Dict:   Output parsed result for this line
+        None:   Skip this line (accumulate state)
     """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
+    state['line_count'] += 1
 
-    for line in data:
-        try:
-            streaming_line_input_type_check(line)
-            output_line: Dict = {}
+    output_line: Dict = {}
 
-            # skip blank lines
-            if not line.strip():
-                continue
+    if not line.strip():
+        return None
 
-            # parse the content here
-            # check out helper functions in jc.utils
-            # and jc.parsers.universal
+    # parse content here — use jc.utils and jc.parsers.universal helpers
+    # output_line = {'field1': line.split()[0], 'field2': line.split()[1]}
 
-            if output_line:
-                yield output_line if raw else _process(output_line)
-            else:
-                raise ParseError('Not foo data')
-
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
+    if output_line:
+        return output_line
+    else:
+        raise ParseError('Not foo data')

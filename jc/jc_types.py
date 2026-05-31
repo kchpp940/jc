@@ -25,9 +25,6 @@ if sys.version_info >= (3, 8):
             "documentation": str,
             "streaming": bool,
             "plugin": bool,
-            "overrides_builtin": bool,
-            "disabled": bool,
-            "broken": bool,
             "hidden": bool,
             "deprecated": bool
         },

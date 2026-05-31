@@ -75,13 +75,10 @@ Examples:
     {"priority":"165","version":"1","timestamp":"2003-08-24T05:15:15.000...}
     ...
 """
-from typing import List, Dict, Iterable, Union, Optional
+from typing import List, Dict, Union, Optional
 import re
 import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
-from jc.exceptions import ParseError
+from jc.streaming import streaming_parser, ParserState
 
 
 class info():
@@ -98,13 +95,32 @@ class info():
 __version__ = info.version
 
 
-# fix escape chars specified in syslog RFC 5424
-# https://www.rfc-editor.org/rfc/rfc5424.html#section-6
 escape_map = {
     r'\\': '\\',
     r'\"': '"',
     r'\]': ']'
 }
+
+SYSLOG_RE = re.compile(r'''
+    (?P<priority><(\d|\d{2}|1[1-8]\d|19[01])>)?
+    (?P<version>\d{1,2})?\s*
+    (?P<timestamp>-|
+        (?P<fullyear>[12]\d{3})-
+        (?P<month>0\d|[1][012])-
+        (?P<mday>[012]\d|3[01])T
+        (?P<hour>[01]\d|2[0-4]):
+        (?P<minute>[0-5]\d):
+        (?P<second>[0-5]\d|60)(?#60seconds can be used for leap year!)(?:\.
+        (?P<secfrac>\d{1,6}))?
+        (?P<numoffset>Z|[+-]\d{2}:\d{2})(?#=timezone))\s
+    (?P<hostname>[\S]{1,255})\s
+    (?P<appname>[\S]{1,48})\s
+    (?P<procid>[\S]{1,128})\s
+    (?P<msgid>[\S]{1,32})\s
+    (?P<structureddata>-|(?:\[.+?(?<!\\)\])+)
+    (?:\s(?P<msg>.+))?
+    ''', re.VERBOSE
+)
 
 
 def _extract_structs(structs_string: str) -> List[str]:
@@ -204,13 +220,12 @@ def _process(proc_data: Dict) -> Dict:
     return proc_data
 
 
-@add_jc_meta
-def parse(
-    data: Iterable[str],
-    raw: bool = False,
-    quiet: bool = False,
-    ignore_exceptions: bool = False
-) -> Union[Iterable[Dict], tuple]:
+def _init_state():
+    return {}
+
+
+@streaming_parser(info, _process, _init_state)
+def parse(line: str, state: ParserState, raw: bool, quiet: bool) -> Union[Dict, None]:
     """
     Main text parsing generator function. Returns an iterable object.
 
@@ -228,76 +243,39 @@ def parse(
 
         Iterable of Dictionaries
     """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
+    if not line.strip():
+        return None
 
-    # inspired by https://regex101.com/library/Wgbxn2
-    syslog = re.compile(r'''
-        (?P<priority><(\d|\d{2}|1[1-8]\d|19[01])>)?
-        (?P<version>\d{1,2})?\s*
-        (?P<timestamp>-|
-            (?P<fullyear>[12]\d{3})-
-            (?P<month>0\d|[1][012])-
-            (?P<mday>[012]\d|3[01])T
-            (?P<hour>[01]\d|2[0-4]):
-            (?P<minute>[0-5]\d):
-            (?P<second>[0-5]\d|60)(?#60seconds can be used for leap year!)(?:\.
-            (?P<secfrac>\d{1,6}))?
-            (?P<numoffset>Z|[+-]\d{2}:\d{2})(?#=timezone))\s
-        (?P<hostname>[\S]{1,255})\s
-        (?P<appname>[\S]{1,48})\s
-        (?P<procid>[\S]{1,128})\s
-        (?P<msgid>[\S]{1,32})\s
-        (?P<structureddata>-|(?:\[.+?(?<!\\)\])+)
-        (?:\s(?P<msg>.+))?
-        ''', re.VERBOSE
-    )
+    syslog_match = SYSLOG_RE.match(line)
+    if syslog_match:
+        syslog_dict = syslog_match.groupdict()
+        for item in syslog_dict:
+            if syslog_dict[item] == '-':
+                syslog_dict[item] = None
 
-    for line in data:
-        try:
-            streaming_line_input_type_check(line)
-            output_line: Dict = {}
+        priority = None
 
-            #skip blank lines
-            if not line.strip():
-                continue
+        if syslog_dict['priority']:
+            priority = syslog_dict['priority'][1:-1]
 
-            syslog_match = syslog.match(line)
-            if syslog_match:
-                syslog_dict = syslog_match.groupdict()
-                for item in syslog_dict:
-                    if syslog_dict[item] == '-':
-                        syslog_dict[item] = None
+        return {
+            'priority': priority,
+            'version': syslog_dict['version'],
+            'timestamp': syslog_dict['timestamp'],
+            'hostname': syslog_dict['hostname'],
+            'appname': syslog_dict['appname'],
+            'proc_id': syslog_dict['procid'],
+            'msg_id': syslog_dict['msgid'],
+            'structured_data': syslog_dict['structureddata'],
+            'message': syslog_dict['msg']
+        }
 
-                priority = None
+    else:
+        if not quiet:
+            jc.utils.warning_message(
+                [f'Unparsable line found: {line.rstrip()}']
+            )
 
-                if syslog_dict['priority']:
-                    priority = syslog_dict['priority'][1:-1]
-
-                output_line = {
-                    'priority': priority,
-                    'version': syslog_dict['version'],
-                    'timestamp': syslog_dict['timestamp'],
-                    'hostname': syslog_dict['hostname'],
-                    'appname': syslog_dict['appname'],
-                    'proc_id': syslog_dict['procid'],
-                    'msg_id': syslog_dict['msgid'],
-                    'structured_data': syslog_dict['structureddata'],
-                    'message': syslog_dict['msg']
-                }
-
-            else:
-                output_line = {
-                    'unparsable': line.rstrip()
-                }
-
-                if not quiet:
-                    jc.utils.warning_message(
-                        [f'Unparsable line found: {line.rstrip()}']
-                    )
-
-            if output_line:
-                yield output_line if raw else _process(output_line)
-
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
+        return {
+            'unparsable': line.rstrip()
+        }

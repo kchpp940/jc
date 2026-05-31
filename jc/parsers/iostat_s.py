@@ -99,9 +99,7 @@ Examples:
     ...
 """
 import jc.utils
-from jc.streaming import (
-    add_jc_meta, streaming_input_type_check, streaming_line_input_type_check, raise_or_yield
-)
+from jc.streaming import streaming_parser, ParserState
 from jc.exceptions import ParseError
 import jc.parsers.universal
 
@@ -165,70 +163,43 @@ def _create_obj_list(section_list, section_name):
     return output_list
 
 
-@add_jc_meta
-def parse(data, raw=False, quiet=False, ignore_exceptions=False):
-    """
-    Main text parsing generator function. Returns an iterable object.
+def _init_state():
+    return {'section': '', 'headers': '', 'cpu_list': [], 'device_list': []}
 
-    Parameters:
 
-        data:              (iterable)  line-based text data to parse
-                                       (e.g. sys.stdin or str.splitlines())
+@streaming_parser(info, _process, _init_state)
+def parse(line, state, raw, quiet):
+    if not line.strip() or line.startswith('Linux'):
+        return None
 
-        raw:               (boolean)   unprocessed output if True
-        quiet:             (boolean)   suppress warning messages if True
-        ignore_exceptions: (boolean)   ignore parsing exceptions if True
+    if line.startswith('avg-cpu:'):
+        state['section'] = 'cpu'
+        state['headers'] = _normalize_headers(line)
+        state['headers'] = state['headers'].strip().split(':', maxsplit=1)[1:]
+        state['headers'] = ' '.join(state['headers'])
+        return None
 
-    Returns:
+    if line.startswith('Device'):
+        state['section'] = 'device'
+        state['headers'] = _normalize_headers(line)
+        state['headers'] = state['headers'].replace(':', ' ')
+        return None
 
-        Iterable of Dictionaries
-    """
-    jc.utils.compatibility(__name__, info.compatible, quiet)
-    streaming_input_type_check(data)
+    output_line = {}
 
-    section = ''  # either 'cpu' or 'device'
-    headers = ''
-    cpu_list = []
-    device_list = []
+    if state['section'] == 'cpu':
+        state['cpu_list'].append(state['headers'])
+        state['cpu_list'].append(line)
+        output_line = _create_obj_list(state['cpu_list'], 'cpu')[0]
+        state['cpu_list'] = []
 
-    for line in data:
-        try:
-            streaming_line_input_type_check(line)
-            output_line = {}
+    if state['section'] == 'device':
+        state['device_list'].append(state['headers'])
+        state['device_list'].append(line)
+        output_line = _create_obj_list(state['device_list'], 'device')[0]
+        state['device_list'] = []
 
-            # ignore blank lines and header line
-            if not line.strip() or line.startswith('Linux'):
-                continue
+    if output_line:
+        return output_line
 
-            if line.startswith('avg-cpu:'):
-                section = 'cpu'
-                headers = _normalize_headers(line)
-                headers = headers.strip().split(':', maxsplit=1)[1:]
-                headers = ' '.join(headers)
-                continue
-
-            if line.startswith('Device'):
-                section = 'device'
-                headers = _normalize_headers(line)
-                headers = headers.replace(':', ' ')
-                continue
-
-            if section == 'cpu':
-                cpu_list.append(headers)
-                cpu_list.append(line)
-                output_line = _create_obj_list(cpu_list, 'cpu')[0]
-                cpu_list = []
-
-            if section == 'device':
-                device_list.append(headers)
-                device_list.append(line)
-                output_line = _create_obj_list(device_list, 'device')[0]
-                device_list = []
-
-            if output_line:
-                yield output_line if raw else _process(output_line)
-            else:
-                raise ParseError('Not iostat data')
-
-        except Exception as e:
-            yield raise_or_yield(ignore_exceptions, e, line)
+    raise ParseError('Not iostat data')
