@@ -17,6 +17,7 @@ from .lib import (
     parser_mod_list, standard_parser_mod_list, plugin_parser_mod_list, streaming_parser_mod_list,
     slurpable_parser_mod_list, _parser_is_slurpable
 )
+from .registry import registry
 from .jc_types import JSONDictType, CustomColorType, ParserInfoType
 from . import utils
 from .cli_data import (
@@ -269,7 +270,7 @@ class JcCli():
     @staticmethod
     def about_jc() -> JSONDictType:
         """Return jc info and the contents of each parser.info as a dictionary"""
-        return {
+        result: JSONDictType = {
             'name': 'jc',
             'version': info.version,
             'description': info.description,
@@ -285,8 +286,18 @@ class JcCli():
             'streaming_parser_count': len(streaming_parser_mod_list(show_hidden=True, show_deprecated=True)),
             'plugin_parser_count': len(plugin_parser_mod_list(show_hidden=True, show_deprecated=True)),
             'slurpable_parser_count': len(slurpable_parser_mod_list(show_hidden=True, show_deprecated=True)),
+            'disabled_parser_count': len(registry.disabled_parsers),
+            'broken_parser_count': len(registry.broken_parsers),
+            'overridden_parser_count': len(registry.overridden_parsers),
             'parsers': all_parser_info(show_hidden=True, show_deprecated=True)
         }
+        if registry.overridden_parsers:
+            result['overridden_parsers'] = sorted(registry.overridden_parsers)
+        if registry.disabled_parsers:
+            result['disabled_parsers'] = sorted(registry.disabled_parsers)
+        if registry.broken_parsers:
+            result['broken_parsers'] = sorted(registry.broken_parsers)
+        return result
 
     def helptext(self) -> str:
         """Return the help text with the list of parsers"""
@@ -322,10 +333,25 @@ class JcCli():
                 if 'slurpable' in p_info.get('tags', []):
                     slurpy = 'This parser can be used with the `--slurp` command-line option.\n\n'
 
+                plugin_notice = ''
+                if p_info.get('plugin'):
+                    plugin_notice = 'This is a local plugin parser.\n\n'
+
+                override_notice = ''
+                if p_info.get('overrides_builtin'):
+                    override_notice = 'This plugin overrides the built-in parser of the same name.\n\n'
+
+                disabled_notice = ''
+                if p_info.get('disabled'):
+                    disabled_notice = 'This parser is currently disabled.\n\n'
+
                 doc_text: str = \
                     f'{docs}\n' \
                     f'Compatibility:  {compatible}\n\n' \
                     f'{slurpy}' \
+                    f'{plugin_notice}' \
+                    f'{override_notice}' \
+                    f'{disabled_notice}' \
                     f'Version {version} by {author} ({author_email})\n'
 
                 utils._safe_pager(doc_text)

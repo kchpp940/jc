@@ -157,3 +157,4 @@ from .lib import (
     all_parser_info as all_parser_info,
     get_help as get_help
 )
+from .registry import registry as registry

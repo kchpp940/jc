@@ -1,295 +1,29 @@
 """jc - JSON Convert lib module"""
-import sys
-import os
-import re
 import importlib
 from typing import List, Iterable, Optional, Union, Iterator
 from types import ModuleType
 from .jc_types import ParserInfoType, JSONDictType
-from jc import appdirs
+from .registry import (
+    registry, cliname_to_modname, modname_to_cliname,
+)
 from jc import utils
 
 
 __version__ = '1.25.6'
 
-parsers: List[str] = [
-    'acpi',
-    'airport',
-    'airport-s',
-    'amixer',
-    'apt-cache-show',
-    'apt-get-sqq',
-    'arp',
-    'asciitable',
-    'asciitable-m',
-    'blkid',
-    'bluetoothctl',
-    'cbt',
-    'cef',
-    'cef-s',
-    'certbot',
-    'chage',
-    'cksum',
-    'clf',
-    'clf-s',
-    'crontab',
-    'crontab-u',
-    'csv',
-    'csv-s',
-    'curl-head',
-    'date',
-    'datetime-iso',
-    'debconf-show',
-    'df',
-    'dig',
-    'dir',
-    'dmidecode',
-    'dpkg-l',
-    'du',
-    'efibootmgr',
-    'email-address',
-    'env',
-    'ethtool',
-    'file',
-    'find',
-    'findmnt',
-    'finger',
-    'free',
-    'fstab',
-    'git-log',
-    'git-log-s',
-    'git-ls-remote',
-    'gpg',
-    'group',
-    'gshadow',
-    'hash',
-    'hashsum',
-    'hciconfig',
-    'history',
-    'host',
-    'hosts',
-    'http-headers',
-    'id',
-    'ifconfig',
-    'ini',
-    'ini-dup',
-    'iostat',
-    'iostat-s',
-    'ip-address',
-    'ipconfig',
-    'iptables',
-    'ip-route',
-    'iw-scan',
-    'iwconfig',
-    'jar-manifest',
-    'jobs',
-    'jwt',
-    'kv',
-    'kv-dup',
-    'last',
-    'ls',
-    'ls-s',
-    'lsattr',
-    'lsb-release',
-    'lsblk',
-    'lsmod',
-    'lsof',
-    'lspci',
-    'lsusb',
-    'm3u',
-    'mdadm',
-    'mount',
-    'mpstat',
-    'mpstat-s',
-    'needrestart',
-    'netstat',
-    'net-localgroup',
-    'net-user',
-    'nmcli',
-    'nsd-control',
-    'ntpq',
-    'openvpn',
-    'os-prober',
-    'os-release',
-    'pacman',
-    'passwd',
-    'path',
-    'path-list',
-    'pci-ids',
-    'pgpass',
-    'pidstat',
-    'pidstat-s',
-    'ping',
-    'ping-s',
-    'pip-list',
-    'pip-show',
-    'pkg-index-apk',
-    'pkg-index-deb',
-    'plist',
-    'postconf',
-    'proc',
-    'proc-buddyinfo',
-    'proc-cmdline',
-    'proc-consoles',
-    'proc-cpuinfo',
-    'proc-crypto',
-    'proc-devices',
-    'proc-diskstats',
-    'proc-filesystems',
-    'proc-interrupts',
-    'proc-iomem',
-    'proc-ioports',
-    'proc-loadavg',
-    'proc-locks',
-    'proc-meminfo',
-    'proc-modules',
-    'proc-mtrr',
-    'proc-pagetypeinfo',
-    'proc-partitions',
-    'proc-slabinfo',
-    'proc-softirqs',
-    'proc-stat',
-    'proc-swaps',
-    'proc-uptime',
-    'proc-version',
-    'proc-vmallocinfo',
-    'proc-vmstat',
-    'proc-zoneinfo',
-    'proc-driver-rtc',
-    'proc-net-arp',
-    'proc-net-dev',
-    'proc-net-dev-mcast',
-    'proc-net-if-inet6',
-    'proc-net-igmp',
-    'proc-net-igmp6',
-    'proc-net-ipv6-route',
-    'proc-net-netlink',
-    'proc-net-netstat',
-    'proc-net-packet',
-    'proc-net-protocols',
-    'proc-net-route',
-    'proc-net-tcp',
-    'proc-net-unix',
-    'proc-pid-fdinfo',
-    'proc-pid-io',
-    'proc-pid-maps',
-    'proc-pid-mountinfo',
-    'proc-pid-numa-maps',
-    'proc-pid-smaps',
-    'proc-pid-stat',
-    'proc-pid-statm',
-    'proc-pid-status',
-    'ps',
-    'resolve-conf',
-    'route',
-    'route-print',
-    'rpm-qi',
-    'rsync',
-    'rsync-s',
-    'semver',
-    'sfdisk',
-    'shadow',
-    'srt',
-    'ss',
-    'ssh-conf',
-    'sshd-conf',
-    'stat',
-    'stat-s',
-    'swapon',
-    'sysctl',
-    'syslog',
-    'syslog-s',
-    'syslog-bsd',
-    'syslog-bsd-s',
-    'systemctl',
-    'systemctl-lj',
-    'systemctl-ls',
-    'systemctl-luf',
-    'systeminfo',
-    'time',
-    'timedatectl',
-    'timestamp',
-    'toml',
-    'top',
-    'top-s',
-    'tracepath',
-    'traceroute',
-    'traceroute-s',
-    'tune2fs',
-    'udevadm',
-    'ufw',
-    'ufw-appinfo',
-    'uname',
-    'update-alt-gs',
-    'update-alt-q',
-    'upower',
-    'uptime',
-    'url',
-    'ver',
-    'veracrypt',
-    'vmstat',
-    'vmstat-s',
-    'w',
-    'wc',
-    'wg-show',
-    'who',
-    'x509-cert',
-    'x509-crl',
-    'x509-csr',
-    'xml',
-    'xrandr',
-    'yaml',
-    'zipinfo',
-    'zpool-iostat',
-    'zpool-status'
-]
+parsers: List[str] = registry.parsers
+local_parsers: List[str] = registry.plugin_parsers
+disabled_parsers = registry.disabled_parsers
+overridden_parsers = registry.overridden_parsers
+
 
 def _cliname_to_modname(parser_cli_name: str) -> str:
-    """Return real module name (dashes converted to underscores)"""
-    return parser_cli_name.replace('--', '').replace('-', '_')
+    return cliname_to_modname(parser_cli_name)
 
 def _modname_to_cliname(parser_mod_name: str) -> str:
-    """Return module's cli name (underscores converted to dashes)"""
-    return parser_mod_name.replace('_', '-')
-
-def _is_valid_parser_plugin(name: str, local_parsers_dir: str) -> bool:
-    if re.match(r'\w+\.py$', name) and os.path.isfile(os.path.join(local_parsers_dir, name)):
-        try:
-            parser_mod_name = _cliname_to_modname(name)[0:-3]
-            modpath = 'jcparsers.'
-            plugin =  importlib.import_module(f'{modpath}{parser_mod_name}')
-            if hasattr(plugin, 'info') and hasattr(plugin, 'parse'):
-                del plugin
-                return True
-            else:
-                utils.warning_message([f'Not installing invalid parser plugin "{parser_mod_name}" at {local_parsers_dir}'])
-                return False
-        except Exception as e:
-            utils.warning_message([f'Not installing parser plugin "{parser_mod_name}" at {local_parsers_dir} due to error: {e}'])
-            return False
-    return False
-
-# Create the local_parsers list. This is a list of custom or
-# override parsers from <user_data_dir>/jc/jcparsers/*.py.
-# Once this list is created, extend the parsers list with it.
-local_parsers: List[str] = []
-data_dir = appdirs.user_data_dir('jc', 'jc')  # type: ignore
-local_parsers_dir = os.path.join(data_dir, 'jcparsers')
-if os.path.isdir(local_parsers_dir):
-    sys.path.append(data_dir)
-    for name in os.listdir(local_parsers_dir):
-        if _is_valid_parser_plugin(name, local_parsers_dir):
-            plugin_name = name[0:-3]
-            local_parsers.append(_modname_to_cliname(plugin_name))
-            if plugin_name not in parsers:
-                parsers.append(_modname_to_cliname(plugin_name))
-    try:
-        del name
-    except Exception:
-        pass
+    return modname_to_cliname(parser_mod_name)
 
 def _parser_argument(parser_mod_name: str) -> str:
-    """Return short name of the parser with dashes and with -- prefix"""
     parser = _modname_to_cliname(parser_mod_name)
     return f'--{parser}'
 
@@ -334,65 +68,46 @@ def get_parser(parser_mod_name: Union[str, ModuleType]) -> ModuleType:
 
 def _get_parser(parser_mod_name: str) -> ModuleType:
     """Return the parser module object"""
-    # ensure parser_mod_name is a true module name and not a cli name
     parser_mod_name = _cliname_to_modname(parser_mod_name)
     parser_cli_name = _modname_to_cliname(parser_mod_name)
-    modpath: str = 'jcparsers.' if parser_cli_name in local_parsers else 'jc.parsers.'
+
+    cached = registry.get_cached_module(parser_cli_name)
+    if cached is not None:
+        return cached
+
+    modpath: str = 'jcparsers.' if registry.is_plugin(parser_cli_name) else 'jc.parsers.'
     mod = None
 
     try:
-        mod =  importlib.import_module(f'{modpath}{parser_mod_name}')
+        mod = importlib.import_module(f'{modpath}{parser_mod_name}')
+        registry.cache_module(parser_cli_name, mod)
     except Exception as e:
-        mod =  importlib.import_module(f'jc.parsers.disabled_parser')
+        mod = importlib.import_module('jc.parsers.disabled_parser')
         mod.__name__ = parser_mod_name
+        registry.mark_disabled(parser_cli_name)
         utils.warning_message([f'"{parser_mod_name}" parser disabled due to error: {e}'])
 
     return mod
 
 def _parser_is_slurpable(parser: ModuleType) -> bool:
-    """
-    Returns `True` if this parser can use the `--slurp` command option, else
-    `False`
-
-    parser is a parser module object.
-    """
     tag_list = getattr(parser.info, 'tags', [])
     if 'slurpable' in tag_list:
         return True
-
     return False
 
 def _parser_is_streaming(parser: ModuleType) -> bool:
-    """
-    Returns `True` if this is a streaming parser, else `False`
-
-    parser is a parser module object.
-    """
     if getattr(parser.info, 'streaming', None):
         return True
-
     return False
 
 def _parser_is_hidden(parser: ModuleType) -> bool:
-    """
-    Returns `True` if this is a hidden parser, else `False`
-
-    parser is a parser module object.
-    """
     if getattr(parser.info, 'hidden', None):
         return True
-
     return False
 
 def _parser_is_deprecated(parser: ModuleType) -> bool:
-    """
-    Returns `True` if this is a deprecated parser, else `False`
-
-    parser is a parser module object.
-    """
     if getattr(parser.info, 'deprecated', None):
         return True
-
     return False
 
 def parse(
@@ -647,8 +362,19 @@ def parser_info(
         if not k.startswith('__'):
             info_dict[k] = v  # type: ignore
 
-    if _modname_to_cliname(parser_mod_name) in local_parsers:
+    cliname = _modname_to_cliname(parser_mod_name)
+
+    if registry.is_plugin(cliname):
         info_dict['plugin'] = True
+
+    if registry.is_overridden(cliname):
+        info_dict['overrides_builtin'] = True
+
+    if registry.is_disabled(cliname):
+        info_dict['disabled'] = True
+
+    if registry.is_broken(cliname):
+        info_dict['broken'] = True
 
     if documentation:
         docs = parser_mod.__doc__
