@@ -39,7 +39,7 @@ Schema:
           "commit-serial":      string,
           "notified-serial":    string,  # Conditional
           "wait":               string,
-          "transfer":           string	 # Conditional
+          "transfer":           string   # Conditional
         }
       }
     ]

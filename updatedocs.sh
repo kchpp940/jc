@@ -1,30 +1,7 @@
 #!/bin/bash
-# Update all documentation (README.md, README-snap.md, Man page, Doc files)
+# Update all documentation (README.md, man page, parser docs, shell completions)
+# Uses the unified generator to guarantee consistency.
 
-(
-    echo === Building README.md
-    ./readmegen.py && echo "++++ README.md build successful" || echo "---- README.md build failed"
-) &
+cd "$(dirname "$0")"
 
-(
-    echo === Building README-snap.md
-    ./readmesnapgen.py && echo "++++ README-snap.md build successful" || echo "---- README-snap.md build failed"
-) &
-
-(
-    echo === Building man page
-    ./mangen.py && echo "++++ man page build successful" || echo "---- man page build failed"
-) &
-
-(
-    echo === Building documentation
-    ./docgen.sh && echo "++++ documentation build successful" || echo "---- documentation build failed"
-) &
-
-wait
-echo
-echo "All documentation updated"
-
-echo
-echo "Building shell completion scripts"
-./build-completions.py && echo "++++ shell completion build successful" || echo "---- shell completion build failed"
+python3 generate_docs.py "$@"

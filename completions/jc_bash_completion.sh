@@ -87,4 +87,3 @@ _jc()
         -- "${cur}" ) )
 } &&
 complete -F _jc jc
-

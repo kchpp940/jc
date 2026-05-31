@@ -54,8 +54,31 @@ actively welcome your pull requests:
 
 ## Documentation And Completions
 
-No need to worry about documentation and completions as those are auto generated
-via the python doc strings.
+Documentation and shell completions are auto-generated from parser docstrings
+and metadata.  **Always use the unified documentation generator to ensure
+consistency between all artifacts:**
+
+```bash
+# Generate all documentation (parser docs, README, man page, shell completions)
+python generate_docs.py
+
+# Check if documentation is up-to-date (no files written)
+python generate_docs.py --check
+
+# Show diff of what would change (no files written)
+python generate_docs.py --diff
+```
+
+The following scripts are deprecated and should **not** be called directly
+for writing files: `docgen.sh`, `updatedocs.sh`, `readmegen.py`, `mangen.py`,
+`doc2md.py`, `build-completions.py`.  They will exit with an error unless
+called with `--stdout` for debugging.
+
+Before tagging a release, run the consistency check:
+
+```bash
+python pre_release_check.py
+```
 
 ## Parser Schema Guidelines
 - Try to keep the schema as flat as possible - typically a list of flat

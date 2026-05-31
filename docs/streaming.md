@@ -116,4 +116,3 @@ def streaming_line_input_type_check(line: str) -> None
 
 Ensure each line is a string. Raises `TypeError` if not.
 
-

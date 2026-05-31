@@ -1,20 +1,16 @@
 #!/bin/bash
-# build jc PIP package
-# to install locally, run:   pip3 install jc-x.x.tar.gz
+# Build jc PIP package.
+# Regenerates documentation and verifies consistency before building.
+# To install locally, run:   pip3 install jc-x.x.tar.gz
 
-set -e
+set -euo pipefail
+cd "$(dirname "$0")"
 
-echo "=== Building all artifacts ==="
-./build-artifacts.sh
-
-echo
-echo "=== Running pre-release self-check ==="
+echo "=== Pre-build: verifying documentation consistency ==="
 python3 pre_release_check.py
-if [ $? -ne 0 ]; then
-    echo "Pre-release check failed. Aborting build."
-    exit 1
-fi
 
-echo
-echo "=== Building PIP package ==="
+echo "=== Pre-build: regenerating documentation ==="
+python3 generate_docs.py
+
+echo "=== Building package ==="
 python3 setup.py sdist bdist_wheel

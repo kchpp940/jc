@@ -1,17 +1,13 @@
 #!/bin/bash
-set -e
+# Upload jc package to PyPI.
+# Verifies documentation consistency before uploading.
+# Requires twine: pip install twine
 
-echo "=== Building all artifacts ==="
-./build-artifacts.sh
+set -euo pipefail
+cd "$(dirname "$0")"
 
-echo
-echo "=== Running pre-release self-check ==="
+echo "=== Pre-upload: verifying documentation consistency ==="
 python3 pre_release_check.py
-if [ $? -ne 0 ]; then
-    echo "Pre-release check failed. Aborting upload."
-    exit 1
-fi
 
-echo
 echo "=== Uploading to PyPI ==="
 twine upload dist/*
